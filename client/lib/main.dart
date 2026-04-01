@@ -1,15 +1,8 @@
 import 'dart:async';
-import 'dart:io';
-import 'package:file_picker/file_picker.dart';
 import 'dart:math' show Random;
-import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'api_service.dart';
-import 'auth_screen.dart';
-import 'gif_export.dart';
-import 'pdf_report.dart';
 import 'models.dart';
 import 'grid_painter.dart';
 import 'theme.dart';
@@ -17,133 +10,27 @@ import 'widgets/param_card.dart';
 import 'widgets/stat_chip.dart';
 import 'widgets/chart_panel.dart';
 import 'widgets/animated_stat.dart';
-import 'widgets/profile_panel.dart';
-import 'widgets/settings_panel.dart';
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  final prefs = await SharedPreferences.getInstance();
-  final token    = prefs.getString('token');
-  final username = prefs.getString('username');
-  runApp(DissolutionApp(initialToken: token, initialUsername: username));
+void main() {
+  runApp(const DissolutionApp());
 }
 
-class DissolutionApp extends StatefulWidget {
-  final String? initialToken;
-  final String? initialUsername;
-
-  const DissolutionApp({super.key, this.initialToken, this.initialUsername});
-
-  @override
-  State<DissolutionApp> createState() => _DissolutionAppState();
-}
-
-class _DissolutionAppState extends State<DissolutionApp> {
-  String? _token;
-  String? _username;
-
-  ThemeMode _themeMode = ThemeMode.system;
-  Color _accent = const Color(0xFF171717);
-
-  @override
-  void initState() {
-    super.initState();
-    _token    = widget.initialToken;
-    _username = widget.initialUsername;
-    _loadSettings();
-  }
-
-  Future<void> _loadSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    final modeStr = prefs.getString('theme_mode') ?? 'system';
-    final accentInt = prefs.getInt('accent_color') ?? 0xFF171717;
-    setState(() {
-      _themeMode = switch (modeStr) {
-        'light'  => ThemeMode.light,
-        'dark'   => ThemeMode.dark,
-        _        => ThemeMode.system,
-      };
-      _accent = Color(accentInt);
-    });
-  }
-
-  Future<void> _saveSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    final modeStr = switch (_themeMode) {
-      ThemeMode.light  => 'light',
-      ThemeMode.dark   => 'dark',
-      _                => 'system',
-    };
-    await prefs.setString('theme_mode', modeStr);
-    await prefs.setInt('accent_color', _accent.value);
-  }
-
-  Future<void> _onAuth(AuthResponse auth) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('token', auth.accessToken);
-    await prefs.setString('username', auth.username);
-    setState(() { _token = auth.accessToken; _username = auth.username; });
-  }
-
-  Future<void> _onLogout() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('token');
-    await prefs.remove('username');
-    setState(() { _token = null; _username = null; });
-  }
-
-  void _changeThemeMode(ThemeMode mode) {
-    setState(() => _themeMode = mode);
-    _saveSettings();
-  }
-
-  void _changeAccent(Color color) {
-    setState(() => _accent = color);
-    _saveSettings();
-  }
+class DissolutionApp extends StatelessWidget {
+  const DissolutionApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Симулятор растворения',
-      theme: buildTheme(accent: _accent),
-      darkTheme: buildDarkTheme(accent: _accent),
-      themeMode: _themeMode,
+      theme: buildTheme(),
       debugShowCheckedModeBanner: false,
-      home: (_token == null || _username == null)
-          ? AuthScreen(onSuccess: _onAuth)
-          : SimulationScreen(
-              token: _token!,
-              username: _username!,
-              onLogout: _onLogout,
-              themeMode: _themeMode,
-              accent: _accent,
-              onThemeModeChanged: _changeThemeMode,
-              onAccentChanged: _changeAccent,
-            ),
+      home: const SimulationScreen(),
     );
   }
 }
 
 class SimulationScreen extends StatefulWidget {
-  final String token;
-  final String username;
-  final VoidCallback onLogout;
-  final ThemeMode themeMode;
-  final Color accent;
-  final void Function(ThemeMode) onThemeModeChanged;
-  final void Function(Color) onAccentChanged;
-
-  const SimulationScreen({
-    super.key,
-    required this.token,
-    required this.username,
-    required this.onLogout,
-    required this.themeMode,
-    required this.accent,
-    required this.onThemeModeChanged,
-    required this.onAccentChanged,
-  });
+  const SimulationScreen({super.key});
 
   @override
   State<SimulationScreen> createState() => _SimulationScreenState();
@@ -163,10 +50,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
   int _poreCount = 5;
 
   bool _loading = false;
-  bool _exportingGif = false;
-  bool _exportingPdf = false;
-  bool _saving = false;
-  int _profileRefreshKey = 0;
+  bool _serverOk = true;
   String? _error;
   SimulationResult? _result;
   double _globalMaxConc = 1.0; // max conc across ALL frames — consistent colour scale
@@ -193,23 +77,21 @@ class _SimulationScreenState extends State<SimulationScreen> {
   // Elapsed / ETA during loading
   DateTime? _simStartTime;
   Timer? _elapsedTimer;
-  double _elapsedMs = 0;
+  int _elapsedSeconds = 0;
   // Performance of the LAST run — used to estimate next
   int _lastRunOps = 0;    // gridSize² × steps
   int _lastRunMs  = 0;    // milliseconds it took
 
-  double get _estimatedSeconds {
+  double? get _estimatedSeconds {
+    if (_lastRunOps == 0 || _lastRunMs == 0) return null;
     final ops = _gridSize * _gridSize * _steps;
-    if (_lastRunOps > 0 && _lastRunMs > 0) {
-      return ops / _lastRunOps * (_lastRunMs / 1000.0);
-    }
-    // First run: baseline ~300k cell-steps per second on a typical machine
-    return ops / 300000.0;
+    return ops / _lastRunOps * (_lastRunMs / 1000);
   }
 
   @override
   void initState() {
     super.initState();
+    _checkServer();
   }
 
   @override
@@ -286,179 +168,21 @@ class _SimulationScreenState extends State<SimulationScreen> {
         _ => g,
       };
 
-  Future<void> _exportGif() async {
-    final result = _result;
-    if (result == null) return;
-    setState(() => _exportingGif = true);
-    try {
-      final scale = (400 / result.frames[0].grid.length).ceil().clamp(1, 8);
-      final gifBytes = await compute(generateGif, (
-        grids: result.frames.map((f) => f.grid).toList(),
-        concs: result.frames.map((f) => f.conc).toList(),
-        globalMaxConc: _globalMaxConc,
-        delayMs: (1000 / _playFps).round(),
-        scale: scale,
-      ));
-      final ts = DateTime.now()
-          .toIso8601String()
-          .replaceAll(':', '-')
-          .substring(0, 19);
-      final path = await FilePicker.platform.saveFile(
-        dialogTitle: 'Сохранить GIF',
-        fileName: 'dissolution_$ts.gif',
-        type: FileType.custom,
-        allowedExtensions: ['gif'],
-      );
-      if (path == null) return; // cancelled
-      await File(path).writeAsBytes(gifBytes);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('GIF сохранён: $path'),
-            duration: const Duration(seconds: 4),
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка экспорта: $e')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _exportingGif = false);
-    }
-  }
-
-  Future<void> _exportPdf() async {
-    final result = _result;
-    if (result == null) return;
-    setState(() => _exportingPdf = true);
-    try {
-      final pdfBytes = await generateReport(
-        params: SimulationRequest(
-          gridSize: _gridSize,
-          steps: _steps,
-          geometry: _geometry,
-          temperature: _temperature,
-          baseRate: _baseRate,
-          diffusionRate: _diffusionRate,
-          seed: _seed,
-          poreCount: _poreCount,
-        ),
-        result: result,
-        globalMaxConc: _globalMaxConc,
-      );
-      final ts = DateTime.now()
-          .toIso8601String()
-          .replaceAll(':', '-')
-          .substring(0, 19);
-      final path = await FilePicker.platform.saveFile(
-        dialogTitle: 'Сохранить отчёт PDF',
-        fileName: 'dissolution_report_$ts.pdf',
-        type: FileType.custom,
-        allowedExtensions: ['pdf'],
-      );
-      if (path == null) return;
-      await File(path).writeAsBytes(pdfBytes);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('PDF сохранён: $path'),
-            duration: const Duration(seconds: 4),
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка экспорта PDF: $e')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _exportingPdf = false);
-    }
-  }
-
-  Future<void> _saveResult() async {
-    final result = _result;
-    if (result == null) return;
-    final nameCtrl = TextEditingController(
-      text: '${_geometryLabel(_geometry)} ${_gridSize}×${_gridSize}',
-    );
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Сохранить симуляцию'),
-        content: TextField(
-          controller: nameCtrl,
-          autofocus: true,
-          decoration: const InputDecoration(labelText: 'Название'),
-          onSubmitted: (_) => Navigator.pop(context, true),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Отмена')),
-          ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Сохранить')),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-    final name = nameCtrl.text.trim();
-    if (name.isEmpty) return;
-
-    setState(() => _saving = true);
-    try {
-      final dissolved =
-          (1 - result.series.last.relativeMass) * 100;
-      await _api.saveResult(
-        widget.token,
-        SaveResultRequest(
-          name: name,
-          geometry: _geometry,
-          gridSize: _gridSize,
-          steps: _steps,
-          temperature: _temperature,
-          baseRate: _baseRate,
-          diffusionRate: _diffusionRate,
-          seed: _seed,
-          poreCount: _poreCount,
-          initialSolidCells: result.initialSolidCells,
-          finalSolidCells: result.finalSolidCells,
-          dissolutionStep: result.dissolutionStep,
-          dissolvedPercent: dissolved,
-        ),
-      );
-      if (mounted) {
-        setState(() => _profileRefreshKey++);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Симуляция сохранена в профиль')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка: $e')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
+  Future<void> _checkServer() async {
+    final ok = await _api.checkHealth();
+    if (mounted) setState(() => _serverOk = ok);
   }
 
   Future<void> _run() async {
-    // Start elapsed timer (100ms for smooth progress)
+    // Start elapsed timer
     _simStartTime = DateTime.now();
-    _elapsedMs = 0;
+    _elapsedSeconds = 0;
     _elapsedTimer?.cancel();
-    _elapsedTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
+    _elapsedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) {
         setState(() {
-          _elapsedMs =
-              DateTime.now().difference(_simStartTime!).inMilliseconds.toDouble();
+          _elapsedSeconds =
+              DateTime.now().difference(_simStartTime!).inSeconds;
         });
       }
     });
@@ -511,9 +235,6 @@ class _SimulationScreenState extends State<SimulationScreen> {
           }
         });
       }
-    } on TimeoutException {
-      if (mounted) setState(() => _error =
-          'Симуляция слишком долго считается. Попробуйте уменьшить размер сетки или количество шагов.');
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {
@@ -523,20 +244,10 @@ class _SimulationScreenState extends State<SimulationScreen> {
     }
   }
 
-  bool get _isDark {
-    final brightness = switch (widget.themeMode) {
-      ThemeMode.dark   => Brightness.dark,
-      ThemeMode.light  => Brightness.light,
-      _                => MediaQuery.platformBrightnessOf(context),
-    };
-    return brightness == Brightness.dark;
-  }
-
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
     return Scaffold(
-      backgroundColor: colors.cloudCanvas,
+      backgroundColor: AppColors.cloudCanvas,
       body: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -548,52 +259,10 @@ class _SimulationScreenState extends State<SimulationScreen> {
     );
   }
 
-  void _openProfile() {
-    showDialog(
-      context: context,
-      builder: (_) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        clipBehavior: Clip.antiAlias,
-        child: SizedBox(
-          width: 380,
-          height: 520,
-          child: ProfilePanel(
-            token: widget.token,
-            username: widget.username,
-            refreshTrigger: _profileRefreshKey,
-            onLogout: () {
-              Navigator.of(context).pop();
-              widget.onLogout();
-            },
-            onLoad: (r) {
-              Navigator.of(context).pop();
-              _loadFromSaved(r);
-            },
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _loadFromSaved(SavedResult r) {
-    setState(() {
-      _geometry      = r.geometry;
-      _gridSize      = r.gridSize;
-      _steps         = r.steps;
-      _temperature   = r.temperature;
-      _baseRate      = r.baseRate;
-      _diffusionRate = r.diffusionRate;
-      _seed          = r.seed;
-      _poreCount     = r.poreCount;
-      _result        = null;
-    });
-  }
-
   Widget _buildSidebar() {
-    final colors = context.appColors;
     return Container(
       width: 280,
-      color: colors.elevated,
+      color: AppColors.elevated,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -605,15 +274,14 @@ class _SimulationScreenState extends State<SimulationScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _sectionLabel('Геометрия',
-                      tooltip: 'Форма твёрдого препарата в начале симуляции'),
+                  _serverBanner(),
+                  const SizedBox(height: 16),
+                  _sectionLabel('Геометрия'),
                   const SizedBox(height: 8),
                   _geometrySelector(),
                   if (_geometry == 'porous') ...[
                     const SizedBox(height: 16),
-                    _sectionLabel('Сид структуры',
-                        tooltip:
-                            'Начальное значение генератора случайных чисел.\nРазные сиды — разное расположение и размер пор'),
+                    _sectionLabel('Сид структуры'),
                     const SizedBox(height: 4),
                     ParamCard(
                       label: 'Сид: $_seed',
@@ -637,7 +305,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
                               child: Icon(
                                 Icons.shuffle_rounded,
                                 size: 16,
-                                color: colors.textMuted,
+                                color: AppColors.textMuted,
                               ),
                             ),
                           ),
@@ -645,9 +313,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    _sectionLabel('Количество пор',
-                        tooltip:
-                            'Количество каналов-пустот внутри пористой структуры.\nБольше пор — быстрее растворение за счёт большей площади контакта'),
+                    _sectionLabel('Количество пор'),
                     const SizedBox(height: 4),
                     ParamCard(
                       label: '$_poreCount',
@@ -662,9 +328,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
                     ),
                   ],
                   const SizedBox(height: 20),
-                  _sectionLabel('Температура',
-                      tooltip:
-                          'Температура раствора в кельвинах.\nВлияет на скорость растворения по уравнению Аррениуса:\nk = k₀ · exp(α · (T − T₀))'),
+                  _sectionLabel('Температура'),
                   const SizedBox(height: 4),
                   ParamCard(
                     label: 'T = ${_temperature.toStringAsFixed(0)} K',
@@ -677,9 +341,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  _sectionLabel('Размер сетки',
-                      tooltip:
-                          'Количество ячеек по каждой стороне (N×N).\nБольшая сетка — выше точность, но дольше расчёт'),
+                  _sectionLabel('Размер сетки'),
                   const SizedBox(height: 4),
                   ParamCard(
                     label: '$_gridSize × $_gridSize',
@@ -696,11 +358,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
                   // Steps header with Auto toggle
                   Row(
                     children: [
-                      Expanded(
-                        child: _sectionLabel('Шаги',
-                            tooltip:
-                                'Количество итераций симуляции.\nРежим «Авто» останавливается при полном растворении'),
-                      ),
+                      Expanded(child: _sectionLabel('Шаги')),
                       GestureDetector(
                         onTap: () =>
                             setState(() => _autoSteps = !_autoSteps),
@@ -710,13 +368,13 @@ class _SimulationScreenState extends State<SimulationScreen> {
                               horizontal: 8, vertical: 3),
                           decoration: BoxDecoration(
                             color: _autoSteps
-                                ? colors.accent
-                                : colors.elevated,
+                                ? AppColors.textPrimary
+                                : AppColors.elevated,
                             borderRadius: BorderRadius.circular(100),
                             border: Border.all(
                               color: _autoSteps
-                                  ? colors.accent
-                                  : colors.borderLight,
+                                  ? AppColors.textPrimary
+                                  : AppColors.borderLight,
                             ),
                           ),
                           child: Row(
@@ -727,7 +385,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
                                 size: 10,
                                 color: _autoSteps
                                     ? Colors.white
-                                    : colors.textMuted,
+                                    : AppColors.textMuted,
                               ),
                               const SizedBox(width: 4),
                               Text(
@@ -737,7 +395,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
                                   fontWeight: FontWeight.w600,
                                   color: _autoSteps
                                       ? Colors.white
-                                      : colors.textMuted,
+                                      : AppColors.textMuted,
                                 ),
                               ),
                             ],
@@ -767,9 +425,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  _sectionLabel('Базовая скорость',
-                      tooltip:
-                          'Константа скорости растворения k₀ при базовой температуре T₀.\nОпределяет вероятность перехода ячейки в жидкое состояние за один шаг'),
+                  _sectionLabel('Базовая скорость'),
                   const SizedBox(height: 4),
                   ParamCard(
                     label: _baseRate.toStringAsFixed(3),
@@ -783,9 +439,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  _sectionLabel('Диффузия',
-                      tooltip:
-                          'Коэффициент диффузии D растворённого вещества.\nОпределяет скорость выравнивания концентрации между соседними ячейками'),
+                  _sectionLabel('Диффузия'),
                   const SizedBox(height: 4),
                   ParamCard(
                     label: _diffusionRate.toStringAsFixed(2),
@@ -829,7 +483,6 @@ class _SimulationScreenState extends State<SimulationScreen> {
   }
 
   Widget _buildSidebarHeader() {
-    final colors = context.appColors;
     return Padding(
       padding:
           const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -839,11 +492,11 @@ class _SimulationScreenState extends State<SimulationScreen> {
             width: 28,
             height: 28,
             decoration: BoxDecoration(
-              color: colors.textPrimary,
+              color: AppColors.textPrimary,
               borderRadius: BorderRadius.circular(6),
             ),
-            child: Icon(Icons.science_outlined,
-                color: colors.cloudCanvas, size: 16),
+            child: const Icon(Icons.science_outlined,
+                color: Colors.white, size: 16),
           ),
           const SizedBox(width: 10),
           Text(
@@ -855,100 +508,73 @@ class _SimulationScreenState extends State<SimulationScreen> {
                       height: 1.3,
                     ),
           ),
-          const Spacer(),
-          // Settings gear button
-          Tooltip(
-            message: 'Настройки',
-            child: GestureDetector(
-              onTap: () => showDialog(
-                context: context,
-                builder: (_) => Dialog(
-                  backgroundColor: Colors.transparent,
-                  elevation: 0,
-                  child: SettingsPanel(
-                    currentMode: widget.themeMode,
-                    currentAccent: widget.accent,
-                    onThemeModeChanged: widget.onThemeModeChanged,
-                    onAccentChanged: widget.onAccentChanged,
-                  ),
-                ),
-              ),
-              child: Container(
-                width: 28,
-                height: 28,
-                margin: const EdgeInsets.only(right: 6),
-                decoration: BoxDecoration(
-                  color: colors.cloudCanvas,
-                  borderRadius: BorderRadius.circular(100),
-                  border: Border.all(color: colors.borderLight),
-                ),
-                child: Icon(
-                  Icons.settings_outlined,
-                  size: 14,
-                  color: colors.textMuted,
-                ),
-              ),
+        ],
+      ),
+    );
+  }
+
+  Widget _serverBanner() {
+    return Container(
+      padding:
+          const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: _serverOk
+            ? const Color(0xFFDCFCE7)
+            : const Color(0xFFFEE2E2),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+          color: _serverOk
+              ? const Color(0xFF86EFAC)
+              : const Color(0xFFFCA5A5),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: _serverOk
+                  ? const Color(0xFF22C55E)
+                  : AppColors.vividCrimson,
             ),
           ),
-          Tooltip(
-            message: widget.username,
-            child: GestureDetector(
-              onTap: _openProfile,
-              child: Container(
-                width: 28,
-                height: 28,
-                decoration: BoxDecoration(
-                  color: colors.cloudCanvas,
-                  borderRadius: BorderRadius.circular(100),
-                  border: Border.all(color: colors.borderLight),
-                ),
-                child: Icon(
-                  Icons.person_outline_rounded,
-                  size: 15,
-                  color: colors.textMuted,
-                ),
-              ),
+          const SizedBox(width: 8),
+          Text(
+            _serverOk ? 'Сервер онлайн' : 'Сервер офлайн',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: _serverOk
+                  ? const Color(0xFF15803D)
+                  : const Color(0xFFB91C1C),
             ),
+          ),
+          const Spacer(),
+          InkWell(
+            onTap: _checkServer,
+            child: const Icon(Icons.refresh_rounded,
+                size: 14, color: AppColors.textMuted),
           ),
         ],
       ),
     );
   }
 
-
-  Widget _sectionLabel(String text, {String? tooltip}) {
-    final colors = context.appColors;
-    final label = Text(
+  Widget _sectionLabel(String text) {
+    return Text(
       text.toUpperCase(),
-      style: TextStyle(
+      style: const TextStyle(
         fontSize: 10,
         fontWeight: FontWeight.w600,
         letterSpacing: 0.8,
-        color: colors.textMuted,
+        color: AppColors.textMuted,
       ),
-    );
-    if (tooltip == null) return label;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        label,
-        const SizedBox(width: 4),
-        Tooltip(
-          message: tooltip,
-          preferBelow: false,
-          waitDuration: const Duration(milliseconds: 300),
-          child: Icon(
-            Icons.info_outline_rounded,
-            size: 11,
-            color: colors.textMuted,
-          ),
-        ),
-      ],
     );
   }
 
   Widget _geometrySelector() {
-    final colors = context.appColors;
     const options = [
       ('circle', 'Круг', Icons.circle_outlined),
       ('square', 'Квадрат', Icons.crop_square_outlined),
@@ -971,13 +597,13 @@ class _SimulationScreenState extends State<SimulationScreen> {
                     const EdgeInsets.symmetric(vertical: 10),
                 decoration: BoxDecoration(
                   color: selected
-                      ? colors.accent
-                      : colors.elevated,
+                      ? AppColors.textPrimary
+                      : AppColors.elevated,
                   borderRadius: BorderRadius.circular(6),
                   border: Border.all(
                     color: selected
-                        ? colors.accent
-                        : colors.borderLight,
+                        ? AppColors.textPrimary
+                        : AppColors.borderLight,
                   ),
                 ),
                 child: Column(
@@ -986,7 +612,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
                         size: 18,
                         color: selected
                             ? Colors.white
-                            : colors.textMuted),
+                            : AppColors.textMuted),
                     const SizedBox(height: 4),
                     Text(
                       label,
@@ -995,7 +621,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
                         fontWeight: FontWeight.w500,
                         color: selected
                             ? Colors.white
-                            : colors.textSecondary,
+                            : AppColors.textSecondary,
                       ),
                     ),
                   ],
@@ -1009,22 +635,17 @@ class _SimulationScreenState extends State<SimulationScreen> {
   }
 
   Widget _errorBanner(String msg) {
-    final isDark = _isDark;
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF2D1515) : const Color(0xFFFEF2F2),
+        color: const Color(0xFFFEF2F2),
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(
-          color: isDark ? const Color(0xFF6B2020) : const Color(0xFFFCA5A5),
-        ),
+        border: Border.all(color: const Color(0xFFFCA5A5)),
       ),
       child: Text(
         msg,
-        style: TextStyle(
-          fontSize: 12,
-          color: isDark ? const Color(0xFFFF8080) : const Color(0xFFB91C1C),
-        ),
+        style: const TextStyle(
+            fontSize: 12, color: Color(0xFFB91C1C)),
       ),
     );
   }
@@ -1116,7 +737,6 @@ class _SimulationScreenState extends State<SimulationScreen> {
   }
 
   Widget _buildTopBar(SimulationResult result) {
-    final colors = context.appColors;
     return Padding(
       padding: const EdgeInsets.symmetric(
           horizontal: 20, vertical: 12),
@@ -1134,7 +754,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
             label: 'Растворено',
             value:
                 '${((1 - result.series.last.relativeMass) * 100).toStringAsFixed(1)}%',
-            color: colors.vividTeal,
+            color: AppColors.vividTeal,
           ),
           const SizedBox(width: 8),
           StatChip(
@@ -1142,145 +762,15 @@ class _SimulationScreenState extends State<SimulationScreen> {
             value: result.dissolutionStep == _steps
                 ? '> $_steps'
                 : '${result.dissolutionStep}',
-            color: colors.electricBlue,
+            color: AppColors.electricBlue,
           ),
           const SizedBox(width: 8),
           StatChip(
-            label: 'Начальный объём',
-            value: '${result.initialSolidCells} яч.',
-            color: colors.textMuted,
+            label: 'Нач. ячейки',
+            value: '${result.initialSolidCells}',
+            color: AppColors.textMuted,
           ),
           const Spacer(),
-          // Save to profile
-          Tooltip(
-            message: 'Сохранить в профиль',
-            child: GestureDetector(
-              onTap: _saving ? null : _saveResult,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: colors.elevated,
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: colors.borderLight),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (_saving)
-                      SizedBox(
-                        width: 12, height: 12,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 1.5, color: colors.textMuted),
-                      )
-                    else
-                      Icon(Icons.bookmark_add_outlined,
-                          size: 16, color: colors.textSecondary),
-                    const SizedBox(width: 6),
-                    Text(
-                      _saving ? 'Сохранение…' : 'Сохранить',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                        color: colors.textSecondary,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          // GIF export button
-          Tooltip(
-            message: 'Сохранить анимацию как GIF',
-            child: GestureDetector(
-              onTap: _exportingGif ? null : _exportGif,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: _exportingGif
-                      ? colors.cloudCanvas
-                      : colors.elevated,
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: colors.borderLight),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (_exportingGif)
-                      SizedBox(
-                        width: 12,
-                        height: 12,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 1.5,
-                          color: colors.textMuted,
-                        ),
-                      )
-                    else
-                      Icon(Icons.gif_box_outlined,
-                          size: 16, color: colors.textSecondary),
-                    const SizedBox(width: 6),
-                    Text(
-                      _exportingGif ? 'Генерация…' : 'GIF',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                        color: colors.textSecondary,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          // PDF export button
-          Tooltip(
-            message: 'Сохранить подробный отчёт в PDF',
-            child: GestureDetector(
-              onTap: _exportingPdf ? null : _exportPdf,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: _exportingPdf
-                      ? colors.cloudCanvas
-                      : colors.elevated,
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: colors.borderLight),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (_exportingPdf)
-                      SizedBox(
-                        width: 12,
-                        height: 12,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 1.5,
-                          color: colors.textMuted,
-                        ),
-                      )
-                    else
-                      Icon(Icons.picture_as_pdf_outlined,
-                          size: 16, color: colors.textSecondary),
-                    const SizedBox(width: 6),
-                    Text(
-                      _exportingPdf ? 'Генерация…' : 'PDF',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                        color: colors.textSecondary,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
           _viewToggle(),
         ],
       ),
@@ -1288,12 +778,11 @@ class _SimulationScreenState extends State<SimulationScreen> {
   }
 
   Widget _viewToggle() {
-    final colors = context.appColors;
     return Container(
       decoration: BoxDecoration(
-        color: colors.cloudCanvas,
+        color: AppColors.cloudCanvas,
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: colors.borderLight),
+        border: Border.all(color: AppColors.borderLight),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -1311,7 +800,6 @@ class _SimulationScreenState extends State<SimulationScreen> {
 
   Widget _toggleBtn(
       IconData icon, bool active, VoidCallback onTap) {
-    final colors = context.appColors;
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
@@ -1320,13 +808,13 @@ class _SimulationScreenState extends State<SimulationScreen> {
             horizontal: 10, vertical: 7),
         decoration: BoxDecoration(
           color: active
-              ? colors.accent
+              ? AppColors.textPrimary
               : Colors.transparent,
           borderRadius: BorderRadius.circular(5),
         ),
         child: Icon(icon,
             size: 16,
-            color: active ? Colors.white : colors.textMuted),
+            color: active ? Colors.white : AppColors.textMuted),
       ),
     );
   }
@@ -1334,7 +822,6 @@ class _SimulationScreenState extends State<SimulationScreen> {
   Widget _buildGridView(
       SimulationResult result, FrameData frame, StepData stepData) {
     final maxFrame = result.frames.length - 1;
-    final isDark = _isDark;
 
     return Padding(
       padding: const EdgeInsets.all(24),
@@ -1393,12 +880,17 @@ class _SimulationScreenState extends State<SimulationScreen> {
                       child: Stack(
                         children: [
                           // Grid with manual pan/zoom
+                          // Listener captures PointerScrollEvent (trackpad scroll
+                          // → pan, mouse wheel → zoom) and PointerScaleEvent
+                          // (trackpad pinch → zoom). GestureDetector handles
+                          // drag-to-pan with mouse/one-finger.
                           Positioned.fill(
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(5),
                               child: Listener(
                                 behavior: HitTestBehavior.opaque,
                                 onPointerSignal: (event) {
+                                  // Mouse wheel → zoom; trackpad scroll → pan
                                   if (event is PointerScrollEvent) {
                                     if (event.kind == PointerDeviceKind.trackpad) {
                                       _pan(Offset(
@@ -1414,6 +906,9 @@ class _SimulationScreenState extends State<SimulationScreen> {
                                     }
                                   }
                                 },
+                                // GestureDetector.onScale handles:
+                                //   • macOS trackpad pinch → scale
+                                //   • mouse/trackpad drag  → pan (scale==1)
                                 child: GestureDetector(
                                   behavior: HitTestBehavior.opaque,
                                   onScaleStart: (d) {
@@ -1421,10 +916,12 @@ class _SimulationScreenState extends State<SimulationScreen> {
                                     _gestureScale = 1.0;
                                   },
                                   onScaleUpdate: (d) {
+                                    // Pan
                                     if (_gestureFocal != null) {
                                       _pan(d.localFocalPoint - _gestureFocal!);
                                     }
                                     _gestureFocal = d.localFocalPoint;
+                                    // Pinch zoom (incremental)
                                     final factor = _gestureScale > 0
                                         ? d.scale / _gestureScale
                                         : 1.0;
@@ -1450,7 +947,6 @@ class _SimulationScreenState extends State<SimulationScreen> {
                                         frame.conc,
                                         _globalMaxConc,
                                         hoveredCell: _hoveredCell,
-                                        isDark: isDark,
                                       ),
                                       child: const SizedBox.expand(),
                                     ),
@@ -1466,7 +962,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
                                 decoration: BoxDecoration(
                                   borderRadius: BorderRadius.circular(6),
                                   border: Border.all(
-                                      color: context.appColors.borderLight),
+                                      color: AppColors.borderLight),
                                 ),
                               ),
                             ),
@@ -1510,18 +1006,17 @@ class _SimulationScreenState extends State<SimulationScreen> {
 
   Widget _buildStatsPanel(
       SimulationResult result, StepData stepData) {
-    final colors = context.appColors;
-    final numStyle = TextStyle(
+    const numStyle = TextStyle(
       fontSize: 20,
       fontWeight: FontWeight.w600,
-      color: colors.textPrimary,
-      fontFeatures: const [FontFeature.tabularFigures()],
+      color: AppColors.textPrimary,
+      fontFeatures: [FontFeature.tabularFigures()],
     );
-    final headStyle = TextStyle(
+    const headStyle = TextStyle(
       fontSize: 28,
       fontWeight: FontWeight.w700,
-      color: colors.textPrimary,
-      fontFeatures: const [FontFeature.tabularFigures()],
+      color: AppColors.textPrimary,
+      fontFeatures: [FontFeature.tabularFigures()],
       letterSpacing: -0.5,
     );
 
@@ -1533,11 +1028,11 @@ class _SimulationScreenState extends State<SimulationScreen> {
           crossAxisAlignment: CrossAxisAlignment.baseline,
           textBaseline: TextBaseline.alphabetic,
           children: [
-            Text('Шаг ',
+            const Text('Шаг ',
                 style: TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.w700,
-                    color: colors.textPrimary)),
+                    color: AppColors.textPrimary)),
             AnimatedStat(
               value: stepData.step.toDouble(),
               formatter: (v) => v.round().toString(),
@@ -1548,8 +1043,8 @@ class _SimulationScreenState extends State<SimulationScreen> {
         const SizedBox(height: 4),
         Text(
           'из $_steps шагов',
-          style: TextStyle(
-              fontSize: 12, color: colors.textMuted),
+          style: const TextStyle(
+              fontSize: 12, color: AppColors.textMuted),
         ),
 
         const SizedBox(height: 20),
@@ -1583,9 +1078,9 @@ class _SimulationScreenState extends State<SimulationScreen> {
         const SizedBox(height: 20),
         const Divider(),
         const SizedBox(height: 16),
-        _legendItem(colors.solidCell, 'Твёрдое'),
+        _legendItem(AppColors.solidCell, 'Твёрдое'),
         const SizedBox(height: 8),
-        _legendItem(colors.semiCell, 'Растворяется'),
+        _legendItem(AppColors.semiCell, 'Растворяется'),
         const SizedBox(height: 8),
         _legendGradient(),
       ],
@@ -1598,13 +1093,12 @@ class _SimulationScreenState extends State<SimulationScreen> {
     required String Function(double) formatter,
     required TextStyle style,
   }) {
-    final colors = context.appColors;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label,
-            style: TextStyle(
-                fontSize: 11, color: colors.textMuted)),
+            style: const TextStyle(
+                fontSize: 11, color: AppColors.textMuted)),
         const SizedBox(height: 2),
         AnimatedStat(
           value: value,
@@ -1617,7 +1111,6 @@ class _SimulationScreenState extends State<SimulationScreen> {
 
   Widget _legendItem(Color color, String label,
       {bool border = false}) {
-    final colors = context.appColors;
     return Row(
       children: [
         Container(
@@ -1627,26 +1120,25 @@ class _SimulationScreenState extends State<SimulationScreen> {
             color: color,
             borderRadius: BorderRadius.circular(2),
             border: border
-                ? Border.all(color: colors.borderLight)
+                ? Border.all(color: AppColors.borderLight)
                 : null,
           ),
         ),
         const SizedBox(width: 8),
         Text(label,
-            style: TextStyle(
+            style: const TextStyle(
                 fontSize: 12,
-                color: colors.textSecondary)),
+                color: AppColors.textSecondary)),
       ],
     );
   }
 
   Widget _buildZoomControls() {
-    final colors = context.appColors;
     return Container(
       decoration: BoxDecoration(
-        color: colors.elevated.withAlpha(230),
+        color: AppColors.elevated.withAlpha(230),
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: colors.borderLight),
+        border: Border.all(color: AppColors.borderLight),
         boxShadow: const [
           BoxShadow(color: Color(0x10000000), blurRadius: 8, offset: Offset(0, 2)),
         ],
@@ -1655,9 +1147,9 @@ class _SimulationScreenState extends State<SimulationScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           _zoomBtn(Icons.add, () => _applyZoom(1.5)),
-          Container(height: 1, color: colors.borderLight),
+          Container(height: 1, color: AppColors.borderLight),
           _zoomBtn(Icons.remove, () => _applyZoom(1 / 1.5)),
-          Container(height: 1, color: colors.borderLight),
+          Container(height: 1, color: AppColors.borderLight),
           _zoomBtn(Icons.fit_screen_rounded, _resetZoom),
         ],
       ),
@@ -1665,14 +1157,13 @@ class _SimulationScreenState extends State<SimulationScreen> {
   }
 
   Widget _zoomBtn(IconData icon, VoidCallback onTap) {
-    final colors = context.appColors;
     return GestureDetector(
       onTap: onTap,
       child: Container(
         width: 28,
         height: 28,
         alignment: Alignment.center,
-        child: Icon(icon, size: 14, color: colors.textSecondary),
+        child: Icon(icon, size: 14, color: AppColors.textSecondary),
       ),
     );
   }
@@ -1683,7 +1174,6 @@ class _SimulationScreenState extends State<SimulationScreen> {
     FrameData frame,
     Size canvasSize,
   ) {
-    final colors = context.appColors;
     final state = frame.grid[cell.row][cell.col];
     final hasConc = frame.conc.isNotEmpty &&
         cell.row < frame.conc.length &&
@@ -1699,9 +1189,9 @@ class _SimulationScreenState extends State<SimulationScreen> {
       _ => 'Жидкость',
     };
     final stateColor = switch (state) {
-      0 => colors.solidCell,
-      1 => colors.semiCell,
-      _ => colors.electricBlue,
+      0 => AppColors.solidCell,
+      1 => AppColors.semiCell,
+      _ => AppColors.electricBlue,
     };
 
     const tw = 144.0;
@@ -1719,9 +1209,9 @@ class _SimulationScreenState extends State<SimulationScreen> {
           width: tw,
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           decoration: BoxDecoration(
-            color: colors.elevated,
+            color: AppColors.elevated,
             borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: colors.borderLight),
+            border: Border.all(color: AppColors.borderLight),
             boxShadow: const [
               BoxShadow(
                 color: Color(0x18000000),
@@ -1747,10 +1237,10 @@ class _SimulationScreenState extends State<SimulationScreen> {
                   const SizedBox(width: 6),
                   Text(
                     stateLabel,
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
-                      color: colors.textPrimary,
+                      color: AppColors.textPrimary,
                     ),
                   ),
                 ],
@@ -1758,17 +1248,17 @@ class _SimulationScreenState extends State<SimulationScreen> {
               const SizedBox(height: 4),
               Text(
                 'Конц  ${conc.toStringAsFixed(4)}',
-                style: TextStyle(
+                style: const TextStyle(
                   fontSize: 11,
-                  color: colors.textSecondary,
+                  color: AppColors.textSecondary,
                   fontFamily: 'monospace',
                 ),
               ),
               Text(
                 'Отн   $pct %',
-                style: TextStyle(
+                style: const TextStyle(
                   fontSize: 11,
-                  color: colors.textMuted,
+                  color: AppColors.textMuted,
                   fontFamily: 'monospace',
                 ),
               ),
@@ -1780,25 +1270,22 @@ class _SimulationScreenState extends State<SimulationScreen> {
   }
 
   Widget _legendGradient() {
-    final colors = context.appColors;
     const stops = [0.0, 0.25, 0.50, 0.75, 1.0];
     const labels = ['0', '25', '50', '75', '100'];
     const barH = 10.0;
     const barW = 160.0;
 
-    final bgColor = _isDark ? const Color(0xFF0D1827) : const Color(0xFFFFFFFF);
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // Title
-        Text(
+        const Text(
           'РАСТВОР',
           style: TextStyle(
             fontSize: 10,
             fontWeight: FontWeight.w600,
             letterSpacing: 0.8,
-            color: colors.textMuted,
+            color: AppColors.textMuted,
           ),
         ),
         const SizedBox(height: 6),
@@ -1808,15 +1295,15 @@ class _SimulationScreenState extends State<SimulationScreen> {
           height: barH,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(3),
-            gradient: LinearGradient(
+            gradient: const LinearGradient(
               colors: [
-                bgColor,
-                colors.skyBlue,
-                colors.vividTeal,
+                Color(0xFFFFFFFF),
+                Color(0xFF52AEFF),
+                Color(0xFF45DEC5),
               ],
-              stops: const [0.0, 0.5, 1.0],
+              stops: [0.0, 0.5, 1.0],
             ),
-            border: Border.all(color: colors.borderLight),
+            border: Border.all(color: AppColors.borderLight),
           ),
         ),
         // Tick marks
@@ -1831,7 +1318,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
                 child: Container(
                   width: 1,
                   height: 4,
-                  color: colors.borderLight,
+                  color: AppColors.borderLight,
                 ),
               );
             }).toList(),
@@ -1852,9 +1339,9 @@ class _SimulationScreenState extends State<SimulationScreen> {
                   child: Text(
                     labels[i],
                     textAlign: TextAlign.center,
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: 9,
-                      color: colors.textMuted,
+                      color: AppColors.textMuted,
                     ),
                   ),
                 ),
@@ -1863,25 +1350,24 @@ class _SimulationScreenState extends State<SimulationScreen> {
           ),
         ),
         // Unit label
-        Text(
+        const Text(
           '% от макс. концентрации',
-          style: TextStyle(fontSize: 9, color: colors.textMuted),
+          style: TextStyle(fontSize: 9, color: AppColors.textMuted),
         ),
       ],
     );
   }
 
   Widget _buildScrubber(SimulationResult result, int maxFrame) {
-    final colors = context.appColors;
     final currentStep = result.frames[_frameIdx].step;
     final totalSteps = result.series.last.step;
 
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
       decoration: BoxDecoration(
-        color: colors.elevated,
+        color: AppColors.elevated,
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: colors.borderLight),
+        border: Border.all(color: AppColors.borderLight),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1903,7 +1389,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
                   width: 32,
                   height: 32,
                   decoration: BoxDecoration(
-                    color: colors.accent,
+                    color: AppColors.textPrimary,
                     borderRadius: BorderRadius.circular(100),
                   ),
                   child: Icon(
@@ -1928,33 +1414,33 @@ class _SimulationScreenState extends State<SimulationScreen> {
               // Step counter
               Text(
                 'Шаг $currentStep',
-                style: TextStyle(
+                style: const TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
-                  color: colors.textPrimary,
+                  color: AppColors.textPrimary,
                 ),
               ),
               Text(
                 ' / $totalSteps',
-                style: TextStyle(
+                style: const TextStyle(
                   fontSize: 12,
-                  color: colors.textMuted,
+                  color: AppColors.textMuted,
                 ),
               ),
               Text(
                 '  (кадр ${_frameIdx + 1}/${maxFrame + 1})',
-                style: TextStyle(
+                style: const TextStyle(
                   fontSize: 11,
-                  color: colors.textMuted,
+                  color: AppColors.textMuted,
                 ),
               ),
 
               const Spacer(),
 
               // Speed selector
-              Text('Скорость',
+              const Text('Скорость',
                   style: TextStyle(
-                      fontSize: 11, color: colors.textMuted)),
+                      fontSize: 11, color: AppColors.textMuted)),
               const SizedBox(width: 6),
               ...[4.0, 8.0, 16.0, 30.0].map((fps) {
                 final label = fps < 10
@@ -1977,13 +1463,13 @@ class _SimulationScreenState extends State<SimulationScreen> {
                           horizontal: 7, vertical: 3),
                       decoration: BoxDecoration(
                         color: active
-                            ? colors.accent
+                            ? AppColors.textPrimary
                             : Colors.transparent,
                         borderRadius: BorderRadius.circular(100),
                         border: Border.all(
                           color: active
-                              ? colors.accent
-                              : colors.borderLight,
+                              ? AppColors.textPrimary
+                              : AppColors.borderLight,
                         ),
                       ),
                       child: Text(
@@ -1993,7 +1479,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
                           fontWeight: FontWeight.w500,
                           color: active
                               ? Colors.white
-                              : colors.textMuted,
+                              : AppColors.textMuted,
                         ),
                       ),
                     ),
@@ -2028,29 +1514,24 @@ class _SimulationScreenState extends State<SimulationScreen> {
   }
 
   Widget _playerBtn(IconData icon, VoidCallback onTap) {
-    final colors = context.appColors;
     return GestureDetector(
       onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.all(4),
-        child: Icon(icon, size: 18, color: colors.textSecondary),
+        child: Icon(icon, size: 18, color: AppColors.textSecondary),
       ),
     );
   }
 
   Widget _buildLoadingView() {
-    final colors = context.appColors;
     final est = _estimatedSeconds;
-    final elapsedSec = _elapsedMs / 1000.0;
-    final progress = (elapsedSec / est).clamp(0.0, 0.95);
-    final remaining = (est - elapsedSec).ceil().clamp(0, 9999);
-    final isFirstRun = _lastRunOps == 0;
-    final isLong = est > 60;
+    final progress = est != null
+        ? (_elapsedSeconds / est).clamp(0.0, 0.95)
+        : null; // indeterminate
 
-    String _fmtRemaining(int secs) {
-      if (secs >= 120) return '~${(secs / 60).ceil()} мин';
-      return '~${secs}с';
-    }
+    final remaining = est != null
+        ? (est - _elapsedSeconds).ceil().clamp(0, 9999)
+        : null;
 
     return Center(
       child: SizedBox(
@@ -2059,93 +1540,72 @@ class _SimulationScreenState extends State<SimulationScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
+            // Title
+            const Text(
               'Идёт симуляция',
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w600,
-                color: colors.textPrimary,
+                color: AppColors.textPrimary,
               ),
             ),
             const SizedBox(height: 4),
             Text(
               '$_gridSize × $_gridSize  ·  ${_geometryLabel(_geometry)}  ·  $_steps шагов',
-              style: TextStyle(fontSize: 13, color: colors.textMuted),
+              style: const TextStyle(
+                  fontSize: 13, color: AppColors.textMuted),
             ),
 
-            // Slow-run warning
-            if (isLong) ...[
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFFBEB),
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: const Color(0xFFFCD34D)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.timer_outlined,
-                        size: 14, color: Color(0xFFB45309)),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        isFirstRun
-                            ? 'Первый запуск может занять дольше обычного'
-                            : 'Симуляция займёт долго — это нормально',
-                        style: const TextStyle(
-                            fontSize: 11, color: Color(0xFF92400E)),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+            const SizedBox(height: 24),
 
-            const SizedBox(height: 20),
-
-            // Smooth progress bar
+            // Progress bar
             ClipRRect(
               borderRadius: BorderRadius.circular(100),
-              child: TweenAnimationBuilder<double>(
-                tween: Tween(begin: 0.0, end: progress),
-                duration: const Duration(milliseconds: 200),
-                curve: Curves.easeOut,
-                builder: (_, value, __) => LinearProgressIndicator(
-                  value: value,
-                  minHeight: 6,
-                  backgroundColor: colors.borderLight,
-                  valueColor: AlwaysStoppedAnimation<Color>(colors.accent),
-                ),
+              child: LinearProgressIndicator(
+                value: progress,
+                minHeight: 6,
+                backgroundColor: AppColors.borderLight,
+                valueColor: const AlwaysStoppedAnimation<Color>(
+                    AppColors.textPrimary),
               ),
             ),
 
             const SizedBox(height: 10),
 
+            // Time row
             Row(
               children: [
+                // Elapsed
                 Text(
-                  'Прошло: ${elapsedSec.toStringAsFixed(1)} с',
-                  style: TextStyle(
-                      fontSize: 12, color: colors.textMuted),
+                  'Прошло: $_elapsedSeconds с',
+                  style: const TextStyle(
+                      fontSize: 12, color: AppColors.textMuted),
                 ),
                 const Spacer(),
-                Text(
-                  progress >= 0.95
-                      ? 'Завершение…'
-                      : _fmtRemaining(remaining),
-                  style: TextStyle(
-                      fontSize: 12, color: colors.textSecondary),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  '${(progress * 100).toStringAsFixed(0)}%',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: colors.textPrimary,
+                // Remaining / percent
+                if (est != null) ...[
+                  Text(
+                    progress! >= 0.95
+                        ? 'Завершение…'
+                        : '~${remaining}с осталось',  // ignore: unnecessary_brace_in_string_interps
+                    style: const TextStyle(
+                        fontSize: 12, color: AppColors.textSecondary),
                   ),
-                ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '${(progress * 100).toStringAsFixed(0)}%',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                ] else
+                  const Text(
+                    'Оценка…',
+                    style: TextStyle(
+                        fontSize: 12, color: AppColors.textMuted),
+                  ),
               ],
             ),
           ],
@@ -2155,10 +1615,8 @@ class _SimulationScreenState extends State<SimulationScreen> {
   }
 
   Widget _buildPreviewView() {
-    final colors = context.appColors;
     final previewGrid = _computePreviewGrid();
     final emptyConc = <List<double>>[];
-    final isDark = _isDark;
 
     return Padding(
       padding: const EdgeInsets.all(24),
@@ -2176,9 +1634,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
                       borderRadius: BorderRadius.circular(5),
                       child: CustomPaint(
                         painter: GridPainter(
-                          previewGrid, emptyConc, 1.0,
-                          isDark: isDark,
-                        ),
+                          previewGrid, emptyConc, 1.0),
                         child: const SizedBox.expand(),
                       ),
                     ),
@@ -2189,7 +1645,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(6),
                           border: Border.all(
-                              color: colors.borderLight),
+                              color: AppColors.borderLight),
                         ),
                       ),
                     ),
@@ -2203,17 +1659,17 @@ class _SimulationScreenState extends State<SimulationScreen> {
                         padding: const EdgeInsets.symmetric(
                             horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
-                          color: colors.elevated.withAlpha(220),
+                          color: AppColors.elevated.withAlpha(220),
                           borderRadius: BorderRadius.circular(100),
                           border: Border.all(
-                              color: colors.borderLight),
+                              color: AppColors.borderLight),
                         ),
-                        child: Text(
+                        child: const Text(
                           'Начальное состояние',
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w500,
-                            color: colors.textMuted,
+                            color: AppColors.textMuted,
                           ),
                         ),
                       ),
@@ -2230,19 +1686,19 @@ class _SimulationScreenState extends State<SimulationScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
+                const Text(
                   'Готово к запуску',
                   style: TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.w700,
-                    color: colors.textPrimary,
+                    color: AppColors.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   '$_gridSize × $_gridSize ячеек',
-                  style: TextStyle(
-                      fontSize: 12, color: colors.textMuted),
+                  style: const TextStyle(
+                      fontSize: 12, color: AppColors.textMuted),
                 ),
                 const SizedBox(height: 20),
                 _placeholderStat('Твёрдых ячеек'),
@@ -2253,9 +1709,9 @@ class _SimulationScreenState extends State<SimulationScreen> {
                 const SizedBox(height: 24),
                 const Divider(),
                 const SizedBox(height: 16),
-                _legendItem(colors.solidCell, 'Твёрдое'),
+                _legendItem(AppColors.solidCell, 'Твёрдое'),
                 const SizedBox(height: 8),
-                _legendItem(colors.semiCell, 'Растворяется'),
+                _legendItem(AppColors.semiCell, 'Растворяется'),
                 const SizedBox(height: 8),
                 _legendGradient(),
               ],
@@ -2267,19 +1723,18 @@ class _SimulationScreenState extends State<SimulationScreen> {
   }
 
   Widget _placeholderStat(String label) {
-    final colors = context.appColors;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label,
-            style: TextStyle(
-                fontSize: 11, color: colors.textMuted)),
+            style: const TextStyle(
+                fontSize: 11, color: AppColors.textMuted)),
         const SizedBox(height: 2),
-        Text('—',
+        const Text('—',
             style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.w600,
-                color: colors.textMuted)),
+                color: AppColors.borderLight)),
       ],
     );
   }

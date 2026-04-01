@@ -1,22 +1,10 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from auth import (
-    hash_password, verify_password, create_token, get_current_user,
-)
-from database import (
-    init_db,
-    create_user, get_user_by_username,
-    save_result, get_user_results, delete_result,
-)
-from models import (
-    SimulationRequest, SimulationResponse, StepData, FrameData,
-    RegisterRequest, LoginRequest, TokenResponse,
-    SaveResultRequest, SavedResult,
-)
+from models import SimulationRequest, SimulationResponse, StepData, FrameData
 from simulation import CellularAutomaton
 
-app = FastAPI(title="Dissolution Simulation API", version="2.0.0")
+app = FastAPI(title="Dissolution Simulation API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -28,50 +16,10 @@ app.add_middleware(
 FRAME_INTERVAL = 10
 
 
-@app.on_event("startup")
-def startup() -> None:
-    init_db()
-
-
-# ── Health ────────────────────────────────────────────────────────────────────
-
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
 
-
-# ── Auth ──────────────────────────────────────────────────────────────────────
-
-@app.post("/api/auth/register", response_model=TokenResponse)
-def register(req: RegisterRequest):
-    if get_user_by_username(req.username):
-        raise HTTPException(400, detail="Имя пользователя уже занято")
-    uid = create_user(req.username, hash_password(req.password))
-    return TokenResponse(
-        access_token=create_token(uid, req.username),
-        username=req.username,
-        user_id=uid,
-    )
-
-
-@app.post("/api/auth/login", response_model=TokenResponse)
-def login(req: LoginRequest):
-    user = get_user_by_username(req.username)
-    if not user or not verify_password(req.password, user["password_hash"]):
-        raise HTTPException(401, detail="Неверный логин или пароль")
-    return TokenResponse(
-        access_token=create_token(user["id"], user["username"]),
-        username=user["username"],
-        user_id=user["id"],
-    )
-
-
-@app.get("/api/auth/me")
-def me(current_user: dict = Depends(get_current_user)):
-    return {"id": current_user["id"], "username": current_user["username"]}
-
-
-# ── Simulation ────────────────────────────────────────────────────────────────
 
 @app.post("/api/simulations", response_model=SimulationResponse)
 def run_simulation(req: SimulationRequest):
@@ -94,6 +42,7 @@ def run_simulation(req: SimulationRequest):
     series: list[StepData] = []
     frames: list[FrameData] = []
     dissolution_step: int | None = None
+    # In auto mode use a generous cap; manual mode uses req.steps exactly
     max_steps = req.steps
 
     t = 0
@@ -104,10 +53,12 @@ def run_simulation(req: SimulationRequest):
         series.append(StepData(step=t, solid_cells=sc, relative_mass=rm, mean_concentration=mc))
 
         save_frame = (t % FRAME_INTERVAL == 0)
+
+        # Fully dissolved = no SOLID and no SEMI remaining
         fully_done = (sc == 0 and ca.semi_count() == 0)
         if fully_done and dissolution_step is None:
             dissolution_step = t
-            save_frame = True
+            save_frame = True  # always capture the fully-dissolved state
 
         if save_frame:
             frames.append(FrameData(
@@ -117,7 +68,8 @@ def run_simulation(req: SimulationRequest):
             ))
 
         if dissolution_step is not None and req.run_to_completion:
-            break
+            break  # stop right after saving the final frame
+
         if t >= max_steps:
             break
 
@@ -125,7 +77,7 @@ def run_simulation(req: SimulationRequest):
         t += 1
 
     if dissolution_step is None:
-        dissolution_step = max_steps
+        dissolution_step = max_steps  # never fully dissolved within limit
 
     return SimulationResponse(
         initial_solid_cells=initial,
@@ -134,44 +86,3 @@ def run_simulation(req: SimulationRequest):
         series=series,
         frames=frames,
     )
-
-
-# ── Saved results ─────────────────────────────────────────────────────────────
-
-@app.post("/api/results", status_code=201)
-def create_result(
-    req: SaveResultRequest,
-    current_user: dict = Depends(get_current_user),
-):
-    rid = save_result(
-        user_id=current_user["id"],
-        name=req.name,
-        params={
-            "geometry": req.geometry, "grid_size": req.grid_size,
-            "steps": req.steps, "temperature": req.temperature,
-            "base_rate": req.base_rate, "diffusion_rate": req.diffusion_rate,
-            "seed": req.seed, "pore_count": req.pore_count,
-        },
-        stats={
-            "initial_solid_cells": req.initial_solid_cells,
-            "final_solid_cells": req.final_solid_cells,
-            "dissolution_step": req.dissolution_step,
-            "dissolved_percent": req.dissolved_percent,
-        },
-    )
-    return {"id": rid}
-
-
-@app.get("/api/results", response_model=list[SavedResult])
-def list_results(current_user: dict = Depends(get_current_user)):
-    return get_user_results(current_user["id"])
-
-
-@app.delete("/api/results/{result_id}")
-def remove_result(
-    result_id: int,
-    current_user: dict = Depends(get_current_user),
-):
-    if not delete_result(result_id, current_user["id"]):
-        raise HTTPException(404, detail="Result not found")
-    return {"ok": True}
