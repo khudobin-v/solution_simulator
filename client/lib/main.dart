@@ -77,7 +77,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
   // Elapsed / ETA during loading
   DateTime? _simStartTime;
   Timer? _elapsedTimer;
-  int _elapsedSeconds = 0;
+  double _elapsedMs = 0;
   // Performance of the LAST run — used to estimate next
   int _lastRunOps = 0;    // gridSize² × steps
   int _lastRunMs  = 0;    // milliseconds it took
@@ -85,7 +85,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
   double? get _estimatedSeconds {
     if (_lastRunOps == 0 || _lastRunMs == 0) return null;
     final ops = _gridSize * _gridSize * _steps;
-    return ops / _lastRunOps * (_lastRunMs / 1000);
+    return ops / _lastRunOps * (_lastRunMs / 1000.0);
   }
 
   @override
@@ -174,15 +174,15 @@ class _SimulationScreenState extends State<SimulationScreen> {
   }
 
   Future<void> _run() async {
-    // Start elapsed timer
+    // Start elapsed timer (100ms for smooth progress)
     _simStartTime = DateTime.now();
-    _elapsedSeconds = 0;
+    _elapsedMs = 0;
     _elapsedTimer?.cancel();
-    _elapsedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+    _elapsedTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
       if (mounted) {
         setState(() {
-          _elapsedSeconds =
-              DateTime.now().difference(_simStartTime!).inSeconds;
+          _elapsedMs =
+              DateTime.now().difference(_simStartTime!).inMilliseconds.toDouble();
         });
       }
     });
@@ -1525,12 +1525,12 @@ class _SimulationScreenState extends State<SimulationScreen> {
 
   Widget _buildLoadingView() {
     final est = _estimatedSeconds;
+    final elapsedSec = _elapsedMs / 1000.0;
     final progress = est != null
-        ? (_elapsedSeconds / est).clamp(0.0, 0.95)
-        : null; // indeterminate
-
+        ? (elapsedSec / est).clamp(0.0, 0.95)
+        : null;
     final remaining = est != null
-        ? (est - _elapsedSeconds).ceil().clamp(0, 9999)
+        ? (est - elapsedSec).ceil().clamp(0, 9999)
         : null;
 
     return Center(
@@ -1540,7 +1540,6 @@ class _SimulationScreenState extends State<SimulationScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Title
             const Text(
               'Идёт симуляция',
               style: TextStyle(
@@ -1552,42 +1551,50 @@ class _SimulationScreenState extends State<SimulationScreen> {
             const SizedBox(height: 4),
             Text(
               '$_gridSize × $_gridSize  ·  ${_geometryLabel(_geometry)}  ·  $_steps шагов',
-              style: const TextStyle(
-                  fontSize: 13, color: AppColors.textMuted),
+              style: const TextStyle(fontSize: 13, color: AppColors.textMuted),
             ),
 
             const SizedBox(height: 24),
 
-            // Progress bar
+            // Smooth progress bar
             ClipRRect(
               borderRadius: BorderRadius.circular(100),
-              child: LinearProgressIndicator(
-                value: progress,
-                minHeight: 6,
-                backgroundColor: AppColors.borderLight,
-                valueColor: const AlwaysStoppedAnimation<Color>(
-                    AppColors.textPrimary),
-              ),
+              child: progress != null
+                  ? TweenAnimationBuilder<double>(
+                      tween: Tween(begin: 0.0, end: progress),
+                      duration: const Duration(milliseconds: 200),
+                      curve: Curves.easeOut,
+                      builder: (_, value, __) => LinearProgressIndicator(
+                        value: value,
+                        minHeight: 6,
+                        backgroundColor: AppColors.borderLight,
+                        valueColor: const AlwaysStoppedAnimation<Color>(
+                            AppColors.textPrimary),
+                      ),
+                    )
+                  : const LinearProgressIndicator(
+                      minHeight: 6,
+                      backgroundColor: AppColors.borderLight,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                          AppColors.textPrimary),
+                    ),
             ),
 
             const SizedBox(height: 10),
 
-            // Time row
             Row(
               children: [
-                // Elapsed
                 Text(
-                  'Прошло: $_elapsedSeconds с',
+                  'Прошло: ${elapsedSec.toStringAsFixed(1)} с',
                   style: const TextStyle(
                       fontSize: 12, color: AppColors.textMuted),
                 ),
                 const Spacer(),
-                // Remaining / percent
                 if (est != null) ...[
                   Text(
                     progress! >= 0.95
                         ? 'Завершение…'
-                        : '~${remaining}с осталось',  // ignore: unnecessary_brace_in_string_interps
+                        : '~${remaining}с осталось',
                     style: const TextStyle(
                         fontSize: 12, color: AppColors.textSecondary),
                   ),
@@ -1603,8 +1610,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
                 ] else
                   const Text(
                     'Оценка…',
-                    style: TextStyle(
-                        fontSize: 12, color: AppColors.textMuted),
+                    style: TextStyle(fontSize: 12, color: AppColors.textMuted),
                   ),
               ],
             ),
