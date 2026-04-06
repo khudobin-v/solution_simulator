@@ -766,8 +766,8 @@ class _SimulationScreenState extends State<SimulationScreen> {
           ),
           const SizedBox(width: 8),
           StatChip(
-            label: 'Нач. ячейки',
-            value: '${result.initialSolidCells}',
+            label: 'Начальный объём',
+            value: '${result.initialSolidCells} яч.',
             color: AppColors.textMuted,
           ),
           const Spacer(),
