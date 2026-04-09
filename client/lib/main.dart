@@ -276,12 +276,15 @@ class _SimulationScreenState extends State<SimulationScreen> {
                 children: [
                   _serverBanner(),
                   const SizedBox(height: 16),
-                  _sectionLabel('Геометрия'),
+                  _sectionLabel('Геометрия',
+                      tooltip: 'Форма твёрдого препарата в начале симуляции'),
                   const SizedBox(height: 8),
                   _geometrySelector(),
                   if (_geometry == 'porous') ...[
                     const SizedBox(height: 16),
-                    _sectionLabel('Сид структуры'),
+                    _sectionLabel('Сид структуры',
+                        tooltip:
+                            'Начальное значение генератора случайных чисел.\nРазные сиды — разное расположение и размер пор'),
                     const SizedBox(height: 4),
                     ParamCard(
                       label: 'Сид: $_seed',
@@ -313,7 +316,9 @@ class _SimulationScreenState extends State<SimulationScreen> {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    _sectionLabel('Количество пор'),
+                    _sectionLabel('Количество пор',
+                        tooltip:
+                            'Количество каналов-пустот внутри пористой структуры.\nБольше пор — быстрее растворение за счёт большей площади контакта'),
                     const SizedBox(height: 4),
                     ParamCard(
                       label: '$_poreCount',
@@ -328,7 +333,9 @@ class _SimulationScreenState extends State<SimulationScreen> {
                     ),
                   ],
                   const SizedBox(height: 20),
-                  _sectionLabel('Температура'),
+                  _sectionLabel('Температура',
+                      tooltip:
+                          'Температура раствора в кельвинах.\nВлияет на скорость растворения по уравнению Аррениуса:\nk = k₀ · exp(α · (T − T₀))'),
                   const SizedBox(height: 4),
                   ParamCard(
                     label: 'T = ${_temperature.toStringAsFixed(0)} K',
@@ -341,7 +348,9 @@ class _SimulationScreenState extends State<SimulationScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  _sectionLabel('Размер сетки'),
+                  _sectionLabel('Размер сетки',
+                      tooltip:
+                          'Количество ячеек по каждой стороне (N×N).\nБольшая сетка — выше точность, но дольше расчёт'),
                   const SizedBox(height: 4),
                   ParamCard(
                     label: '$_gridSize × $_gridSize',
@@ -358,7 +367,11 @@ class _SimulationScreenState extends State<SimulationScreen> {
                   // Steps header with Auto toggle
                   Row(
                     children: [
-                      Expanded(child: _sectionLabel('Шаги')),
+                      Expanded(
+                        child: _sectionLabel('Шаги',
+                            tooltip:
+                                'Количество итераций симуляции.\nРежим «Авто» останавливается при полном растворении'),
+                      ),
                       GestureDetector(
                         onTap: () =>
                             setState(() => _autoSteps = !_autoSteps),
@@ -425,7 +438,9 @@ class _SimulationScreenState extends State<SimulationScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  _sectionLabel('Базовая скорость'),
+                  _sectionLabel('Базовая скорость',
+                      tooltip:
+                          'Константа скорости растворения k₀ при базовой температуре T₀.\nОпределяет вероятность перехода ячейки в жидкое состояние за один шаг'),
                   const SizedBox(height: 4),
                   ParamCard(
                     label: _baseRate.toStringAsFixed(3),
@@ -439,7 +454,9 @@ class _SimulationScreenState extends State<SimulationScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  _sectionLabel('Диффузия'),
+                  _sectionLabel('Диффузия',
+                      tooltip:
+                          'Коэффициент диффузии D растворённого вещества.\nОпределяет скорость выравнивания концентрации между соседними ячейками'),
                   const SizedBox(height: 4),
                   ParamCard(
                     label: _diffusionRate.toStringAsFixed(2),
@@ -562,8 +579,8 @@ class _SimulationScreenState extends State<SimulationScreen> {
     );
   }
 
-  Widget _sectionLabel(String text) {
-    return Text(
+  Widget _sectionLabel(String text, {String? tooltip}) {
+    final label = Text(
       text.toUpperCase(),
       style: const TextStyle(
         fontSize: 10,
@@ -571,6 +588,24 @@ class _SimulationScreenState extends State<SimulationScreen> {
         letterSpacing: 0.8,
         color: AppColors.textMuted,
       ),
+    );
+    if (tooltip == null) return label;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        label,
+        const SizedBox(width: 4),
+        Tooltip(
+          message: tooltip,
+          preferBelow: false,
+          waitDuration: const Duration(milliseconds: 300),
+          child: const Icon(
+            Icons.info_outline_rounded,
+            size: 11,
+            color: AppColors.textMuted,
+          ),
+        ),
+      ],
     );
   }
 
