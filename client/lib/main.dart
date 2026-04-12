@@ -50,7 +50,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
   int _poreCount = 5;
 
   bool _loading = false;
-  bool _serverOk = true;
+
   String? _error;
   SimulationResult? _result;
   double _globalMaxConc = 1.0; // max conc across ALL frames — consistent colour scale
@@ -91,7 +91,6 @@ class _SimulationScreenState extends State<SimulationScreen> {
   @override
   void initState() {
     super.initState();
-    _checkServer();
   }
 
   @override
@@ -167,11 +166,6 @@ class _SimulationScreenState extends State<SimulationScreen> {
         'porous' => 'Пористая',
         _ => g,
       };
-
-  Future<void> _checkServer() async {
-    final ok = await _api.checkHealth();
-    if (mounted) setState(() => _serverOk = ok);
-  }
 
   Future<void> _run() async {
     // Start elapsed timer (100ms for smooth progress)
@@ -274,8 +268,6 @@ class _SimulationScreenState extends State<SimulationScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _serverBanner(),
-                  const SizedBox(height: 16),
                   _sectionLabel('Геометрия',
                       tooltip: 'Форма твёрдого препарата в начале симуляции'),
                   const SizedBox(height: 8),
@@ -530,54 +522,6 @@ class _SimulationScreenState extends State<SimulationScreen> {
     );
   }
 
-  Widget _serverBanner() {
-    return Container(
-      padding:
-          const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      decoration: BoxDecoration(
-        color: _serverOk
-            ? const Color(0xFFDCFCE7)
-            : const Color(0xFFFEE2E2),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(
-          color: _serverOk
-              ? const Color(0xFF86EFAC)
-              : const Color(0xFFFCA5A5),
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 6,
-            height: 6,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: _serverOk
-                  ? const Color(0xFF22C55E)
-                  : AppColors.vividCrimson,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            _serverOk ? 'Сервер онлайн' : 'Сервер офлайн',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-              color: _serverOk
-                  ? const Color(0xFF15803D)
-                  : const Color(0xFFB91C1C),
-            ),
-          ),
-          const Spacer(),
-          InkWell(
-            onTap: _checkServer,
-            child: const Icon(Icons.refresh_rounded,
-                size: 14, color: AppColors.textMuted),
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _sectionLabel(String text, {String? tooltip}) {
     final label = Text(
