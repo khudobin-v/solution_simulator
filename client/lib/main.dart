@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' show Random;
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'api_service.dart';
+import 'gif_export.dart';
 import 'models.dart';
 import 'grid_painter.dart';
 import 'theme.dart';
@@ -50,7 +53,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
   int _poreCount = 5;
 
   bool _loading = false;
-
+  bool _exportingGif = false;
   String? _error;
   SimulationResult? _result;
   double _globalMaxConc = 1.0; // max conc across ALL frames — consistent colour scale
@@ -166,6 +169,45 @@ class _SimulationScreenState extends State<SimulationScreen> {
         'porous' => 'Пористая',
         _ => g,
       };
+
+  Future<void> _exportGif() async {
+    final result = _result;
+    if (result == null) return;
+    setState(() => _exportingGif = true);
+    try {
+      final scale = (400 / result.frames[0].grid.length).ceil().clamp(1, 8);
+      final gifBytes = await compute(generateGif, (
+        grids: result.frames.map((f) => f.grid).toList(),
+        concs: result.frames.map((f) => f.conc).toList(),
+        globalMaxConc: _globalMaxConc,
+        delayMs: (1000 / _playFps).round(),
+        scale: scale,
+      ));
+      final home = Platform.environment['HOME'] ?? '.';
+      final ts = DateTime.now()
+          .toIso8601String()
+          .replaceAll(':', '-')
+          .substring(0, 19);
+      final path = '$home/Desktop/dissolution_$ts.gif';
+      await File(path).writeAsBytes(gifBytes);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('GIF сохранён: $path'),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка экспорта: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _exportingGif = false);
+    }
+  }
 
   Future<void> _run() async {
     // Start elapsed timer (100ms for smooth progress)
@@ -750,6 +792,51 @@ class _SimulationScreenState extends State<SimulationScreen> {
             color: AppColors.textMuted,
           ),
           const Spacer(),
+          // GIF export button
+          Tooltip(
+            message: 'Сохранить анимацию как GIF',
+            child: GestureDetector(
+              onTap: _exportingGif ? null : _exportGif,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 150),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: _exportingGif
+                      ? AppColors.cloudCanvas
+                      : AppColors.elevated,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: AppColors.borderLight),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_exportingGif)
+                      const SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 1.5,
+                          color: AppColors.textMuted,
+                        ),
+                      )
+                    else
+                      const Icon(Icons.gif_box_outlined,
+                          size: 16, color: AppColors.textSecondary),
+                    const SizedBox(width: 6),
+                    Text(
+                      _exportingGif ? 'Генерация…' : 'GIF',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
           _viewToggle(),
         ],
       ),
