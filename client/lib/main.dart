@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:file_picker/file_picker.dart';
 import 'dart:math' show Random;
 import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
@@ -183,12 +184,17 @@ class _SimulationScreenState extends State<SimulationScreen> {
         delayMs: (1000 / _playFps).round(),
         scale: scale,
       ));
-      final home = Platform.environment['HOME'] ?? '.';
       final ts = DateTime.now()
           .toIso8601String()
           .replaceAll(':', '-')
           .substring(0, 19);
-      final path = '$home/Desktop/dissolution_$ts.gif';
+      final path = await FilePicker.platform.saveFile(
+        dialogTitle: 'Сохранить GIF',
+        fileName: 'dissolution_$ts.gif',
+        type: FileType.custom,
+        allowedExtensions: ['gif'],
+      );
+      if (path == null) return; // cancelled
       await File(path).writeAsBytes(gifBytes);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
