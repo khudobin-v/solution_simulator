@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'api_service.dart';
 import 'gif_export.dart';
+import 'pdf_report.dart';
 import 'models.dart';
 import 'grid_painter.dart';
 import 'theme.dart';
@@ -55,6 +56,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
 
   bool _loading = false;
   bool _exportingGif = false;
+  bool _exportingPdf = false;
   String? _error;
   SimulationResult? _result;
   double _globalMaxConc = 1.0; // max conc across ALL frames — consistent colour scale
@@ -212,6 +214,56 @@ class _SimulationScreenState extends State<SimulationScreen> {
       }
     } finally {
       if (mounted) setState(() => _exportingGif = false);
+    }
+  }
+
+  Future<void> _exportPdf() async {
+    final result = _result;
+    if (result == null) return;
+    setState(() => _exportingPdf = true);
+    try {
+      final pdfBytes = await generateReport(
+        params: SimulationRequest(
+          gridSize: _gridSize,
+          steps: _steps,
+          geometry: _geometry,
+          temperature: _temperature,
+          baseRate: _baseRate,
+          diffusionRate: _diffusionRate,
+          seed: _seed,
+          poreCount: _poreCount,
+        ),
+        result: result,
+        globalMaxConc: _globalMaxConc,
+      );
+      final ts = DateTime.now()
+          .toIso8601String()
+          .replaceAll(':', '-')
+          .substring(0, 19);
+      final path = await FilePicker.platform.saveFile(
+        dialogTitle: 'Сохранить отчёт PDF',
+        fileName: 'dissolution_report_$ts.pdf',
+        type: FileType.custom,
+        allowedExtensions: ['pdf'],
+      );
+      if (path == null) return;
+      await File(path).writeAsBytes(pdfBytes);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('PDF сохранён: $path'),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка экспорта PDF: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _exportingPdf = false);
     }
   }
 
@@ -831,6 +883,51 @@ class _SimulationScreenState extends State<SimulationScreen> {
                     const SizedBox(width: 6),
                     Text(
                       _exportingGif ? 'Генерация…' : 'GIF',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          // PDF export button
+          Tooltip(
+            message: 'Сохранить подробный отчёт в PDF',
+            child: GestureDetector(
+              onTap: _exportingPdf ? null : _exportPdf,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 150),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: _exportingPdf
+                      ? AppColors.cloudCanvas
+                      : AppColors.elevated,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: AppColors.borderLight),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_exportingPdf)
+                      const SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 1.5,
+                          color: AppColors.textMuted,
+                        ),
+                      )
+                    else
+                      const Icon(Icons.picture_as_pdf_outlined,
+                          size: 16, color: AppColors.textSecondary),
+                    const SizedBox(width: 6),
+                    Text(
+                      _exportingPdf ? 'Генерация…' : 'PDF',
                       style: const TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w500,
