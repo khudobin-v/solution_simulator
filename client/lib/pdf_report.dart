@@ -211,59 +211,65 @@ pw.Widget _labeledChart(
       pw.Text(label,
           style: pw.TextStyle(font: bold, fontSize: 9, color: PdfColors.grey700)),
       pw.SizedBox(height: 4),
-      pw.Container(
-        height: h,
-        decoration: pw.BoxDecoration(
-          color: PdfColors.grey100,
-          border: pw.Border.all(color: PdfColors.grey300, width: 0.5),
-        ),
-        child: pw.CustomPaint(
-          size: PdfPoint.zero,
-          painter: (canvas, size) {
-            final w = size.x;
-            final chartH = size.y;
-            if (values.length < 2) return;
+      pw.LayoutBuilder(
+        builder: (ctx, constraints) {
+          final w = constraints?.maxWidth ?? 240.0;
+          return pw.CustomPaint(
+            size: PdfPoint(w, h),
+            painter: (canvas, size) {
+              if (values.length < 2) return;
 
-            // Grid lines
-            canvas
-              ..setStrokeColor(PdfColors.grey300)
-              ..setLineWidth(0.3);
-            for (final t in [0.25, 0.5, 0.75]) {
-              final y = pad + t * (chartH - 2 * pad);
+              // Background + border
               canvas
-                ..moveTo(pad, y)
-                ..lineTo(w - pad, y)
+                ..setFillColor(PdfColors.grey100)
+                ..drawRect(0, 0, size.x, size.y)
+                ..fillPath()
+                ..setStrokeColor(PdfColors.grey300)
+                ..setLineWidth(0.5)
+                ..drawRect(0, 0, size.x, size.y)
                 ..strokePath();
-            }
 
-            // Axes
-            canvas
-              ..setStrokeColor(PdfColors.grey500)
-              ..setLineWidth(0.5)
-              ..moveTo(pad, pad)
-              ..lineTo(pad, chartH - pad)
-              ..lineTo(w - pad, chartH - pad)
-              ..strokePath();
-
-            // Data line
-            canvas
-              ..setStrokeColor(color)
-              ..setLineWidth(1.2);
-            final plotW = w - 2 * pad;
-            final plotH = chartH - 2 * pad;
-            for (int i = 0; i < values.length; i++) {
-              final x = pad + (i / (values.length - 1)) * plotW;
-              // PDF y: 0 is bottom, so invert
-              final y = pad + (1 - values[i].clamp(0.0, 1.0)) * plotH;
-              if (i == 0) {
-                canvas.moveTo(x, y);
-              } else {
-                canvas.lineTo(x, y);
+              // Horizontal grid lines
+              canvas
+                ..setStrokeColor(PdfColors.grey300)
+                ..setLineWidth(0.3);
+              for (final t in [0.25, 0.5, 0.75]) {
+                // PDF y=0 is bottom; data y=0 (bottom of chart) maps to pad
+                final y = pad + t * (size.y - 2 * pad);
+                canvas
+                  ..moveTo(pad, y)
+                  ..lineTo(size.x - pad, y)
+                  ..strokePath();
               }
-            }
-            canvas.strokePath();
-          },
-        ),
+
+              // Axes
+              canvas
+                ..setStrokeColor(PdfColors.grey500)
+                ..setLineWidth(0.5)
+                ..moveTo(pad, pad)
+                ..lineTo(pad, size.y - pad)
+                ..lineTo(size.x - pad, size.y - pad)
+                ..strokePath();
+
+              // Data line
+              canvas
+                ..setStrokeColor(color)
+                ..setLineWidth(1.2);
+              final plotW = size.x - 2 * pad;
+              final plotH = size.y - 2 * pad;
+              for (int i = 0; i < values.length; i++) {
+                final x = pad + (i / (values.length - 1)) * plotW;
+                final y = pad + (1 - values[i].clamp(0.0, 1.0)) * plotH;
+                if (i == 0) {
+                  canvas.moveTo(x, y);
+                } else {
+                  canvas.lineTo(x, y);
+                }
+              }
+              canvas.strokePath();
+            },
+          );
+        },
       ),
       pw.SizedBox(height: 3),
       pw.Row(
