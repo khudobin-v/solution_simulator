@@ -21,8 +21,17 @@ Future<Uint8List> generateReport({
 
   final dissolved = (1 - result.series.last.relativeMass) * 100;
 
-  final initialPng = _frameToPng(result.frames.first, globalMaxConc);
-  final finalPng   = _frameToPng(result.frames.last,  globalMaxConc);
+  // Sample up to 24 frames evenly across the simulation
+  const maxFrames = 24;
+  final allFrames = result.frames;
+  final sampleIdx = allFrames.length <= maxFrames
+      ? List.generate(allFrames.length, (i) => i)
+      : List.generate(
+          maxFrames,
+          (i) => (i * (allFrames.length - 1) / (maxFrames - 1)).round(),
+        );
+  final framePngs  = sampleIdx.map((i) => _frameToPng(allFrames[i], globalMaxConc)).toList();
+  final frameSteps = sampleIdx.map((i) => allFrames[i].step).toList();
 
   final pdf = pw.Document(theme: theme);
 
@@ -58,7 +67,7 @@ Future<Uint8List> generateReport({
         pw.SizedBox(height: 18),
 
         // ── Frame snapshots ──────────────────────────────────────────────────
-        _framesSection(initialPng, finalPng, fontBold),
+        _framesSection(framePngs, frameSteps, fontBold),
       ],
     ),
   );
@@ -284,39 +293,60 @@ pw.Widget _labeledChart(
   );
 }
 
-// ── Frame images ──────────────────────────────────────────────────────────────
+// ── Frame grid ────────────────────────────────────────────────────────────────
 
 pw.Widget _framesSection(
-    Uint8List initialPng, Uint8List finalPng, pw.Font bold) {
+    List<Uint8List> pngs, List<int> steps, pw.Font bold) {
+  // A4 content width: 595.28 - 2*48 = 499.28pt
+  // 4 columns, 3 gaps of 8pt → cell ≈ (499.28 - 24) / 4 = 118.8pt
+  const cols   = 4;
+  const gap    = 8.0;
+  const cellW  = 118.0;
+
+  final rows = <pw.Widget>[];
+  for (int r = 0; r * cols < pngs.length; r++) {
+    final cells = <pw.Widget>[];
+    for (int c = 0; c < cols; c++) {
+      final i = r * cols + c;
+      if (c > 0) cells.add(pw.SizedBox(width: gap));
+      if (i < pngs.length) {
+        cells.add(
+          pw.SizedBox(
+            width: cellW,
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.center,
+              children: [
+                pw.Container(
+                  decoration: pw.BoxDecoration(
+                    border: pw.Border.all(color: PdfColors.grey300, width: 0.4),
+                  ),
+                  child: pw.Image(pw.MemoryImage(pngs[i])),
+                ),
+                pw.SizedBox(height: 2),
+                pw.Text(
+                  'шаг ${steps[i]}',
+                  style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey600),
+                  textAlign: pw.TextAlign.center,
+                ),
+              ],
+            ),
+          ),
+        );
+      } else {
+        cells.add(pw.SizedBox(width: cellW));
+      }
+    }
+    rows.add(pw.Row(children: cells));
+    rows.add(pw.SizedBox(height: gap));
+  }
+
   return pw.Column(
     crossAxisAlignment: pw.CrossAxisAlignment.start,
     children: [
-      pw.Text('Состояние системы',
+      pw.Text('Покадровое состояние системы',
           style: pw.TextStyle(font: bold, fontSize: 12, color: PdfColors.grey800)),
       pw.SizedBox(height: 12),
-      pw.Row(
-        children: [
-          pw.Expanded(child: _frameCard('Начальное состояние', initialPng, bold)),
-          pw.SizedBox(width: 20),
-          pw.Expanded(child: _frameCard('Финальное состояние', finalPng, bold)),
-        ],
-      ),
-    ],
-  );
-}
-
-pw.Widget _frameCard(String label, Uint8List png, pw.Font bold) {
-  return pw.Column(
-    children: [
-      pw.Text(label,
-          style: pw.TextStyle(font: bold, fontSize: 9, color: PdfColors.grey700)),
-      pw.SizedBox(height: 6),
-      pw.Container(
-        decoration: pw.BoxDecoration(
-          border: pw.Border.all(color: PdfColors.grey300, width: 0.5),
-        ),
-        child: pw.Image(pw.MemoryImage(png)),
-      ),
+      ...rows,
     ],
   );
 }
@@ -332,7 +362,8 @@ String _geomLabel(String g) => switch (g) {
 
 Uint8List _frameToPng(FrameData frame, double globalMaxConc) {
   final N = frame.grid.length;
-  final scale = (240 / N).ceil().clamp(1, 8);
+  // Target ~110px per frame (fits 4-column grid at 118pt cells in PDF)
+  final scale = (110 / N).ceil().clamp(1, 6);
   final W = N * scale;
   final image = img.Image(width: W, height: W);
 
