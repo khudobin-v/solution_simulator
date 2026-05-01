@@ -5,7 +5,9 @@ import 'dart:math' show Random;
 import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'api_service.dart';
+import 'auth_screen.dart';
 import 'gif_export.dart';
 import 'pdf_report.dart';
 import 'models.dart';
@@ -15,13 +17,50 @@ import 'widgets/param_card.dart';
 import 'widgets/stat_chip.dart';
 import 'widgets/chart_panel.dart';
 import 'widgets/animated_stat.dart';
+import 'widgets/profile_panel.dart';
 
-void main() {
-  runApp(const DissolutionApp());
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final prefs = await SharedPreferences.getInstance();
+  final token    = prefs.getString('token');
+  final username = prefs.getString('username');
+  runApp(DissolutionApp(initialToken: token, initialUsername: username));
 }
 
-class DissolutionApp extends StatelessWidget {
-  const DissolutionApp({super.key});
+class DissolutionApp extends StatefulWidget {
+  final String? initialToken;
+  final String? initialUsername;
+
+  const DissolutionApp({super.key, this.initialToken, this.initialUsername});
+
+  @override
+  State<DissolutionApp> createState() => _DissolutionAppState();
+}
+
+class _DissolutionAppState extends State<DissolutionApp> {
+  String? _token;
+  String? _username;
+
+  @override
+  void initState() {
+    super.initState();
+    _token    = widget.initialToken;
+    _username = widget.initialUsername;
+  }
+
+  Future<void> _onAuth(AuthResponse auth) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('token', auth.accessToken);
+    await prefs.setString('username', auth.username);
+    setState(() { _token = auth.accessToken; _username = auth.username; });
+  }
+
+  Future<void> _onLogout() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('token');
+    await prefs.remove('username');
+    setState(() { _token = null; _username = null; });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -29,13 +68,28 @@ class DissolutionApp extends StatelessWidget {
       title: 'Симулятор растворения',
       theme: buildTheme(),
       debugShowCheckedModeBanner: false,
-      home: const SimulationScreen(),
+      home: (_token == null || _username == null)
+          ? AuthScreen(onSuccess: _onAuth)
+          : SimulationScreen(
+              token: _token!,
+              username: _username!,
+              onLogout: _onLogout,
+            ),
     );
   }
 }
 
 class SimulationScreen extends StatefulWidget {
-  const SimulationScreen({super.key});
+  final String token;
+  final String username;
+  final VoidCallback onLogout;
+
+  const SimulationScreen({
+    super.key,
+    required this.token,
+    required this.username,
+    required this.onLogout,
+  });
 
   @override
   State<SimulationScreen> createState() => _SimulationScreenState();
@@ -57,6 +111,8 @@ class _SimulationScreenState extends State<SimulationScreen> {
   bool _loading = false;
   bool _exportingGif = false;
   bool _exportingPdf = false;
+  bool _saving = false;
+  bool _showProfile = false;
   String? _error;
   SimulationResult? _result;
   double _globalMaxConc = 1.0; // max conc across ALL frames — consistent colour scale
@@ -267,6 +323,74 @@ class _SimulationScreenState extends State<SimulationScreen> {
     }
   }
 
+  Future<void> _saveResult() async {
+    final result = _result;
+    if (result == null) return;
+    final nameCtrl = TextEditingController(
+      text: '${_geometryLabel(_geometry)} ${_gridSize}×${_gridSize}',
+    );
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Сохранить симуляцию'),
+        content: TextField(
+          controller: nameCtrl,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Название'),
+          onSubmitted: (_) => Navigator.pop(context, true),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Отмена')),
+          ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Сохранить')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final name = nameCtrl.text.trim();
+    if (name.isEmpty) return;
+
+    setState(() => _saving = true);
+    try {
+      final dissolved =
+          (1 - result.series.last.relativeMass) * 100;
+      await _api.saveResult(
+        widget.token,
+        SaveResultRequest(
+          name: name,
+          geometry: _geometry,
+          gridSize: _gridSize,
+          steps: _steps,
+          temperature: _temperature,
+          baseRate: _baseRate,
+          diffusionRate: _diffusionRate,
+          seed: _seed,
+          poreCount: _poreCount,
+          initialSolidCells: result.initialSolidCells,
+          finalSolidCells: result.finalSolidCells,
+          dissolutionStep: result.dissolutionStep,
+          dissolvedPercent: dissolved,
+        ),
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Симуляция сохранена в профиль')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
   Future<void> _run() async {
     // Start elapsed timer (100ms for smooth progress)
     _simStartTime = DateTime.now();
@@ -342,15 +466,56 @@ class _SimulationScreenState extends State<SimulationScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.cloudCanvas,
-      body: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      body: Stack(
         children: [
-          _buildSidebar(),
-          const VerticalDivider(width: 1),
-          Expanded(child: _buildMain()),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildSidebar(),
+              const VerticalDivider(width: 1),
+              Expanded(child: _buildMain()),
+            ],
+          ),
+          // Profile panel overlay
+          if (_showProfile)
+            Positioned.fill(
+              child: GestureDetector(
+                onTap: () => setState(() => _showProfile = false),
+                child: Container(color: Colors.black.withAlpha(40)),
+              ),
+            ),
+          AnimatedPositioned(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOut,
+            top: 0,
+            bottom: 0,
+            right: _showProfile ? 0 : -300,
+            width: 300,
+            child: ProfilePanel(
+              token: widget.token,
+              username: widget.username,
+              onLogout: widget.onLogout,
+              onLoad: _loadFromSaved,
+            ),
+          ),
         ],
       ),
     );
+  }
+
+  void _loadFromSaved(SavedResult r) {
+    setState(() {
+      _geometry      = r.geometry;
+      _gridSize      = r.gridSize;
+      _steps         = r.steps;
+      _temperature   = r.temperature;
+      _baseRate      = r.baseRate;
+      _diffusionRate = r.diffusionRate;
+      _seed          = r.seed;
+      _poreCount     = r.poreCount;
+      _result        = null;
+      _showProfile   = false;
+    });
   }
 
   Widget _buildSidebar() {
@@ -617,6 +782,29 @@ class _SimulationScreenState extends State<SimulationScreen> {
                       height: 1.3,
                     ),
           ),
+          const Spacer(),
+          Tooltip(
+            message: widget.username,
+            child: GestureDetector(
+              onTap: () => setState(() => _showProfile = !_showProfile),
+              child: Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  color: _showProfile
+                      ? AppColors.textPrimary
+                      : AppColors.cloudCanvas,
+                  borderRadius: BorderRadius.circular(100),
+                  border: Border.all(color: AppColors.borderLight),
+                ),
+                child: Icon(
+                  Icons.person_outline_rounded,
+                  size: 15,
+                  color: _showProfile ? Colors.white : AppColors.textMuted,
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -850,6 +1038,46 @@ class _SimulationScreenState extends State<SimulationScreen> {
             color: AppColors.textMuted,
           ),
           const Spacer(),
+          // Save to profile
+          Tooltip(
+            message: 'Сохранить в профиль',
+            child: GestureDetector(
+              onTap: _saving ? null : _saveResult,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 150),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: AppColors.elevated,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: AppColors.borderLight),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_saving)
+                      const SizedBox(
+                        width: 12, height: 12,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 1.5, color: AppColors.textMuted),
+                      )
+                    else
+                      const Icon(Icons.bookmark_add_outlined,
+                          size: 16, color: AppColors.textSecondary),
+                    const SizedBox(width: 6),
+                    Text(
+                      _saving ? 'Сохранение…' : 'Сохранить',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
           // GIF export button
           Tooltip(
             message: 'Сохранить анимацию как GIF',

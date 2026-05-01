@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Literal
+from typing import List, Literal, Optional
 
 
 class SimulationRequest(BaseModel):
@@ -36,3 +36,58 @@ class SimulationResponse(BaseModel):
     dissolution_step: int
     series: List[StepData]
     frames: List[FrameData]
+
+
+# ── Auth ──────────────────────────────────────────────────────────────────────
+
+class RegisterRequest(BaseModel):
+    username: str = Field(min_length=3, max_length=30)
+    password: str = Field(min_length=4)
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    username: str
+    user_id: int
+
+
+# ── Saved results ─────────────────────────────────────────────────────────────
+
+class SaveResultRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    geometry: str
+    grid_size: int
+    steps: int
+    temperature: float
+    base_rate: float
+    diffusion_rate: float
+    seed: int
+    pore_count: int
+    initial_solid_cells: int
+    final_solid_cells: int
+    dissolution_step: int
+    dissolved_percent: float
+
+
+class SavedResult(BaseModel):
+    id: int
+    name: str
+    geometry: str
+    grid_size: int
+    steps: int
+    temperature: float
+    base_rate: float
+    diffusion_rate: float
+    seed: int
+    pore_count: int
+    initial_solid_cells: int
+    final_solid_cells: int
+    dissolution_step: int
+    dissolved_percent: float
+    created_at: str
