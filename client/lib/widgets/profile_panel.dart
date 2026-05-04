@@ -6,6 +6,7 @@ import '../theme.dart';
 class ProfilePanel extends StatefulWidget {
   final String token;
   final String username;
+  final int refreshTrigger;
   final VoidCallback onLogout;
   final void Function(SavedResult) onLoad;
 
@@ -13,6 +14,7 @@ class ProfilePanel extends StatefulWidget {
     super.key,
     required this.token,
     required this.username,
+    required this.refreshTrigger,
     required this.onLogout,
     required this.onLoad,
   });
@@ -31,6 +33,14 @@ class _ProfilePanelState extends State<ProfilePanel> {
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void didUpdateWidget(ProfilePanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.refreshTrigger != widget.refreshTrigger) {
+      _load();
+    }
   }
 
   Future<void> _load() async {

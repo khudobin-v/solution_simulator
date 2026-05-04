@@ -113,6 +113,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
   bool _exportingPdf = false;
   bool _saving = false;
   bool _showProfile = false;
+  int _profileRefreshKey = 0;
   String? _error;
   SimulationResult? _result;
   double _globalMaxConc = 1.0; // max conc across ALL frames — consistent colour scale
@@ -376,6 +377,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
         ),
       );
       if (mounted) {
+        setState(() => _profileRefreshKey++);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Симуляция сохранена в профиль')),
         );
@@ -494,6 +496,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
             child: ProfilePanel(
               token: widget.token,
               username: widget.username,
+              refreshTrigger: _profileRefreshKey,
               onLogout: widget.onLogout,
               onLoad: _loadFromSaved,
             ),
