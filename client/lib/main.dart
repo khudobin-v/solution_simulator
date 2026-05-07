@@ -18,6 +18,7 @@ import 'widgets/stat_chip.dart';
 import 'widgets/chart_panel.dart';
 import 'widgets/animated_stat.dart';
 import 'widgets/profile_panel.dart';
+import 'widgets/settings_panel.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -41,11 +42,40 @@ class _DissolutionAppState extends State<DissolutionApp> {
   String? _token;
   String? _username;
 
+  ThemeMode _themeMode = ThemeMode.system;
+  Color _accent = const Color(0xFF171717);
+
   @override
   void initState() {
     super.initState();
     _token    = widget.initialToken;
     _username = widget.initialUsername;
+    _loadSettings();
+  }
+
+  Future<void> _loadSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    final modeStr = prefs.getString('theme_mode') ?? 'system';
+    final accentInt = prefs.getInt('accent_color') ?? 0xFF171717;
+    setState(() {
+      _themeMode = switch (modeStr) {
+        'light'  => ThemeMode.light,
+        'dark'   => ThemeMode.dark,
+        _        => ThemeMode.system,
+      };
+      _accent = Color(accentInt);
+    });
+  }
+
+  Future<void> _saveSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    final modeStr = switch (_themeMode) {
+      ThemeMode.light  => 'light',
+      ThemeMode.dark   => 'dark',
+      _                => 'system',
+    };
+    await prefs.setString('theme_mode', modeStr);
+    await prefs.setInt('accent_color', _accent.value);
   }
 
   Future<void> _onAuth(AuthResponse auth) async {
@@ -62,11 +92,23 @@ class _DissolutionAppState extends State<DissolutionApp> {
     setState(() { _token = null; _username = null; });
   }
 
+  void _changeThemeMode(ThemeMode mode) {
+    setState(() => _themeMode = mode);
+    _saveSettings();
+  }
+
+  void _changeAccent(Color color) {
+    setState(() => _accent = color);
+    _saveSettings();
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Симулятор растворения',
-      theme: buildTheme(),
+      theme: buildTheme(accent: _accent),
+      darkTheme: buildDarkTheme(accent: _accent),
+      themeMode: _themeMode,
       debugShowCheckedModeBanner: false,
       home: (_token == null || _username == null)
           ? AuthScreen(onSuccess: _onAuth)
@@ -74,6 +116,10 @@ class _DissolutionAppState extends State<DissolutionApp> {
               token: _token!,
               username: _username!,
               onLogout: _onLogout,
+              themeMode: _themeMode,
+              accent: _accent,
+              onThemeModeChanged: _changeThemeMode,
+              onAccentChanged: _changeAccent,
             ),
     );
   }
@@ -83,12 +129,20 @@ class SimulationScreen extends StatefulWidget {
   final String token;
   final String username;
   final VoidCallback onLogout;
+  final ThemeMode themeMode;
+  final Color accent;
+  final void Function(ThemeMode) onThemeModeChanged;
+  final void Function(Color) onAccentChanged;
 
   const SimulationScreen({
     super.key,
     required this.token,
     required this.username,
     required this.onLogout,
+    required this.themeMode,
+    required this.accent,
+    required this.onThemeModeChanged,
+    required this.onAccentChanged,
   });
 
   @override
@@ -464,10 +518,20 @@ class _SimulationScreenState extends State<SimulationScreen> {
     }
   }
 
+  bool get _isDark {
+    final brightness = switch (widget.themeMode) {
+      ThemeMode.dark   => Brightness.dark,
+      ThemeMode.light  => Brightness.light,
+      _                => MediaQuery.platformBrightnessOf(context),
+    };
+    return brightness == Brightness.dark;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     return Scaffold(
-      backgroundColor: AppColors.cloudCanvas,
+      backgroundColor: colors.cloudCanvas,
       body: Stack(
         children: [
           Row(
@@ -522,9 +586,10 @@ class _SimulationScreenState extends State<SimulationScreen> {
   }
 
   Widget _buildSidebar() {
+    final colors = context.appColors;
     return Container(
       width: 280,
-      color: AppColors.elevated,
+      color: colors.elevated,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -568,7 +633,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
                               child: Icon(
                                 Icons.shuffle_rounded,
                                 size: 16,
-                                color: AppColors.textMuted,
+                                color: colors.textMuted,
                               ),
                             ),
                           ),
@@ -641,13 +706,13 @@ class _SimulationScreenState extends State<SimulationScreen> {
                               horizontal: 8, vertical: 3),
                           decoration: BoxDecoration(
                             color: _autoSteps
-                                ? AppColors.textPrimary
-                                : AppColors.elevated,
+                                ? colors.accent
+                                : colors.elevated,
                             borderRadius: BorderRadius.circular(100),
                             border: Border.all(
                               color: _autoSteps
-                                  ? AppColors.textPrimary
-                                  : AppColors.borderLight,
+                                  ? colors.accent
+                                  : colors.borderLight,
                             ),
                           ),
                           child: Row(
@@ -658,7 +723,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
                                 size: 10,
                                 color: _autoSteps
                                     ? Colors.white
-                                    : AppColors.textMuted,
+                                    : colors.textMuted,
                               ),
                               const SizedBox(width: 4),
                               Text(
@@ -668,7 +733,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
                                   fontWeight: FontWeight.w600,
                                   color: _autoSteps
                                       ? Colors.white
-                                      : AppColors.textMuted,
+                                      : colors.textMuted,
                                 ),
                               ),
                             ],
@@ -760,6 +825,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
   }
 
   Widget _buildSidebarHeader() {
+    final colors = context.appColors;
     return Padding(
       padding:
           const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -769,7 +835,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
             width: 28,
             height: 28,
             decoration: BoxDecoration(
-              color: AppColors.textPrimary,
+              color: colors.accent,
               borderRadius: BorderRadius.circular(6),
             ),
             child: const Icon(Icons.science_outlined,
@@ -786,6 +852,40 @@ class _SimulationScreenState extends State<SimulationScreen> {
                     ),
           ),
           const Spacer(),
+          // Settings gear button
+          Tooltip(
+            message: 'Настройки',
+            child: GestureDetector(
+              onTap: () => showDialog(
+                context: context,
+                builder: (_) => Dialog(
+                  backgroundColor: Colors.transparent,
+                  elevation: 0,
+                  child: SettingsPanel(
+                    currentMode: widget.themeMode,
+                    currentAccent: widget.accent,
+                    onThemeModeChanged: widget.onThemeModeChanged,
+                    onAccentChanged: widget.onAccentChanged,
+                  ),
+                ),
+              ),
+              child: Container(
+                width: 28,
+                height: 28,
+                margin: const EdgeInsets.only(right: 6),
+                decoration: BoxDecoration(
+                  color: colors.cloudCanvas,
+                  borderRadius: BorderRadius.circular(100),
+                  border: Border.all(color: colors.borderLight),
+                ),
+                child: Icon(
+                  Icons.settings_outlined,
+                  size: 14,
+                  color: colors.textMuted,
+                ),
+              ),
+            ),
+          ),
           Tooltip(
             message: widget.username,
             child: GestureDetector(
@@ -795,15 +895,15 @@ class _SimulationScreenState extends State<SimulationScreen> {
                 height: 28,
                 decoration: BoxDecoration(
                   color: _showProfile
-                      ? AppColors.textPrimary
-                      : AppColors.cloudCanvas,
+                      ? colors.accent
+                      : colors.cloudCanvas,
                   borderRadius: BorderRadius.circular(100),
-                  border: Border.all(color: AppColors.borderLight),
+                  border: Border.all(color: colors.borderLight),
                 ),
                 child: Icon(
                   Icons.person_outline_rounded,
                   size: 15,
-                  color: _showProfile ? Colors.white : AppColors.textMuted,
+                  color: _showProfile ? Colors.white : colors.textMuted,
                 ),
               ),
             ),
@@ -815,13 +915,14 @@ class _SimulationScreenState extends State<SimulationScreen> {
 
 
   Widget _sectionLabel(String text, {String? tooltip}) {
+    final colors = context.appColors;
     final label = Text(
       text.toUpperCase(),
-      style: const TextStyle(
+      style: TextStyle(
         fontSize: 10,
         fontWeight: FontWeight.w600,
         letterSpacing: 0.8,
-        color: AppColors.textMuted,
+        color: colors.textMuted,
       ),
     );
     if (tooltip == null) return label;
@@ -834,10 +935,10 @@ class _SimulationScreenState extends State<SimulationScreen> {
           message: tooltip,
           preferBelow: false,
           waitDuration: const Duration(milliseconds: 300),
-          child: const Icon(
+          child: Icon(
             Icons.info_outline_rounded,
             size: 11,
-            color: AppColors.textMuted,
+            color: colors.textMuted,
           ),
         ),
       ],
@@ -845,6 +946,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
   }
 
   Widget _geometrySelector() {
+    final colors = context.appColors;
     const options = [
       ('circle', 'Круг', Icons.circle_outlined),
       ('square', 'Квадрат', Icons.crop_square_outlined),
@@ -867,13 +969,13 @@ class _SimulationScreenState extends State<SimulationScreen> {
                     const EdgeInsets.symmetric(vertical: 10),
                 decoration: BoxDecoration(
                   color: selected
-                      ? AppColors.textPrimary
-                      : AppColors.elevated,
+                      ? colors.accent
+                      : colors.elevated,
                   borderRadius: BorderRadius.circular(6),
                   border: Border.all(
                     color: selected
-                        ? AppColors.textPrimary
-                        : AppColors.borderLight,
+                        ? colors.accent
+                        : colors.borderLight,
                   ),
                 ),
                 child: Column(
@@ -882,7 +984,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
                         size: 18,
                         color: selected
                             ? Colors.white
-                            : AppColors.textMuted),
+                            : colors.textMuted),
                     const SizedBox(height: 4),
                     Text(
                       label,
@@ -891,7 +993,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
                         fontWeight: FontWeight.w500,
                         color: selected
                             ? Colors.white
-                            : AppColors.textSecondary,
+                            : colors.textSecondary,
                       ),
                     ),
                   ],
@@ -1007,6 +1109,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
   }
 
   Widget _buildTopBar(SimulationResult result) {
+    final colors = context.appColors;
     return Padding(
       padding: const EdgeInsets.symmetric(
           horizontal: 20, vertical: 12),
@@ -1024,7 +1127,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
             label: 'Растворено',
             value:
                 '${((1 - result.series.last.relativeMass) * 100).toStringAsFixed(1)}%',
-            color: AppColors.vividTeal,
+            color: colors.vividTeal,
           ),
           const SizedBox(width: 8),
           StatChip(
@@ -1032,13 +1135,13 @@ class _SimulationScreenState extends State<SimulationScreen> {
             value: result.dissolutionStep == _steps
                 ? '> $_steps'
                 : '${result.dissolutionStep}',
-            color: AppColors.electricBlue,
+            color: colors.electricBlue,
           ),
           const SizedBox(width: 8),
           StatChip(
             label: 'Начальный объём',
             value: '${result.initialSolidCells} яч.',
-            color: AppColors.textMuted,
+            color: colors.textMuted,
           ),
           const Spacer(),
           // Save to profile
@@ -1050,29 +1153,29 @@ class _SimulationScreenState extends State<SimulationScreen> {
                 duration: const Duration(milliseconds: 150),
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
-                  color: AppColors.elevated,
+                  color: colors.elevated,
                   borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: AppColors.borderLight),
+                  border: Border.all(color: colors.borderLight),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     if (_saving)
-                      const SizedBox(
+                      SizedBox(
                         width: 12, height: 12,
                         child: CircularProgressIndicator(
-                            strokeWidth: 1.5, color: AppColors.textMuted),
+                            strokeWidth: 1.5, color: colors.textMuted),
                       )
                     else
-                      const Icon(Icons.bookmark_add_outlined,
-                          size: 16, color: AppColors.textSecondary),
+                      Icon(Icons.bookmark_add_outlined,
+                          size: 16, color: colors.textSecondary),
                     const SizedBox(width: 6),
                     Text(
                       _saving ? 'Сохранение…' : 'Сохранить',
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w500,
-                        color: AppColors.textSecondary,
+                        color: colors.textSecondary,
                       ),
                     ),
                   ],
@@ -1091,33 +1194,33 @@ class _SimulationScreenState extends State<SimulationScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
                   color: _exportingGif
-                      ? AppColors.cloudCanvas
-                      : AppColors.elevated,
+                      ? colors.cloudCanvas
+                      : colors.elevated,
                   borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: AppColors.borderLight),
+                  border: Border.all(color: colors.borderLight),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     if (_exportingGif)
-                      const SizedBox(
+                      SizedBox(
                         width: 12,
                         height: 12,
                         child: CircularProgressIndicator(
                           strokeWidth: 1.5,
-                          color: AppColors.textMuted,
+                          color: colors.textMuted,
                         ),
                       )
                     else
-                      const Icon(Icons.gif_box_outlined,
-                          size: 16, color: AppColors.textSecondary),
+                      Icon(Icons.gif_box_outlined,
+                          size: 16, color: colors.textSecondary),
                     const SizedBox(width: 6),
                     Text(
                       _exportingGif ? 'Генерация…' : 'GIF',
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w500,
-                        color: AppColors.textSecondary,
+                        color: colors.textSecondary,
                       ),
                     ),
                   ],
@@ -1136,33 +1239,33 @@ class _SimulationScreenState extends State<SimulationScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
                   color: _exportingPdf
-                      ? AppColors.cloudCanvas
-                      : AppColors.elevated,
+                      ? colors.cloudCanvas
+                      : colors.elevated,
                   borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: AppColors.borderLight),
+                  border: Border.all(color: colors.borderLight),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     if (_exportingPdf)
-                      const SizedBox(
+                      SizedBox(
                         width: 12,
                         height: 12,
                         child: CircularProgressIndicator(
                           strokeWidth: 1.5,
-                          color: AppColors.textMuted,
+                          color: colors.textMuted,
                         ),
                       )
                     else
-                      const Icon(Icons.picture_as_pdf_outlined,
-                          size: 16, color: AppColors.textSecondary),
+                      Icon(Icons.picture_as_pdf_outlined,
+                          size: 16, color: colors.textSecondary),
                     const SizedBox(width: 6),
                     Text(
                       _exportingPdf ? 'Генерация…' : 'PDF',
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w500,
-                        color: AppColors.textSecondary,
+                        color: colors.textSecondary,
                       ),
                     ),
                   ],
@@ -1178,11 +1281,12 @@ class _SimulationScreenState extends State<SimulationScreen> {
   }
 
   Widget _viewToggle() {
+    final colors = context.appColors;
     return Container(
       decoration: BoxDecoration(
-        color: AppColors.cloudCanvas,
+        color: colors.cloudCanvas,
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: AppColors.borderLight),
+        border: Border.all(color: colors.borderLight),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -1200,6 +1304,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
 
   Widget _toggleBtn(
       IconData icon, bool active, VoidCallback onTap) {
+    final colors = context.appColors;
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
@@ -1208,13 +1313,13 @@ class _SimulationScreenState extends State<SimulationScreen> {
             horizontal: 10, vertical: 7),
         decoration: BoxDecoration(
           color: active
-              ? AppColors.textPrimary
+              ? colors.accent
               : Colors.transparent,
           borderRadius: BorderRadius.circular(5),
         ),
         child: Icon(icon,
             size: 16,
-            color: active ? Colors.white : AppColors.textMuted),
+            color: active ? Colors.white : colors.textMuted),
       ),
     );
   }
@@ -1222,6 +1327,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
   Widget _buildGridView(
       SimulationResult result, FrameData frame, StepData stepData) {
     final maxFrame = result.frames.length - 1;
+    final isDark = _isDark;
 
     return Padding(
       padding: const EdgeInsets.all(24),
@@ -1280,17 +1386,12 @@ class _SimulationScreenState extends State<SimulationScreen> {
                       child: Stack(
                         children: [
                           // Grid with manual pan/zoom
-                          // Listener captures PointerScrollEvent (trackpad scroll
-                          // → pan, mouse wheel → zoom) and PointerScaleEvent
-                          // (trackpad pinch → zoom). GestureDetector handles
-                          // drag-to-pan with mouse/one-finger.
                           Positioned.fill(
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(5),
                               child: Listener(
                                 behavior: HitTestBehavior.opaque,
                                 onPointerSignal: (event) {
-                                  // Mouse wheel → zoom; trackpad scroll → pan
                                   if (event is PointerScrollEvent) {
                                     if (event.kind == PointerDeviceKind.trackpad) {
                                       _pan(Offset(
@@ -1306,9 +1407,6 @@ class _SimulationScreenState extends State<SimulationScreen> {
                                     }
                                   }
                                 },
-                                // GestureDetector.onScale handles:
-                                //   • macOS trackpad pinch → scale
-                                //   • mouse/trackpad drag  → pan (scale==1)
                                 child: GestureDetector(
                                   behavior: HitTestBehavior.opaque,
                                   onScaleStart: (d) {
@@ -1316,12 +1414,10 @@ class _SimulationScreenState extends State<SimulationScreen> {
                                     _gestureScale = 1.0;
                                   },
                                   onScaleUpdate: (d) {
-                                    // Pan
                                     if (_gestureFocal != null) {
                                       _pan(d.localFocalPoint - _gestureFocal!);
                                     }
                                     _gestureFocal = d.localFocalPoint;
-                                    // Pinch zoom (incremental)
                                     final factor = _gestureScale > 0
                                         ? d.scale / _gestureScale
                                         : 1.0;
@@ -1347,6 +1443,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
                                         frame.conc,
                                         _globalMaxConc,
                                         hoveredCell: _hoveredCell,
+                                        isDark: isDark,
                                       ),
                                       child: const SizedBox.expand(),
                                     ),
@@ -1362,7 +1459,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
                                 decoration: BoxDecoration(
                                   borderRadius: BorderRadius.circular(6),
                                   border: Border.all(
-                                      color: AppColors.borderLight),
+                                      color: context.appColors.borderLight),
                                 ),
                               ),
                             ),
@@ -1406,17 +1503,18 @@ class _SimulationScreenState extends State<SimulationScreen> {
 
   Widget _buildStatsPanel(
       SimulationResult result, StepData stepData) {
-    const numStyle = TextStyle(
+    final colors = context.appColors;
+    final numStyle = TextStyle(
       fontSize: 20,
       fontWeight: FontWeight.w600,
-      color: AppColors.textPrimary,
-      fontFeatures: [FontFeature.tabularFigures()],
+      color: colors.textPrimary,
+      fontFeatures: const [FontFeature.tabularFigures()],
     );
-    const headStyle = TextStyle(
+    final headStyle = TextStyle(
       fontSize: 28,
       fontWeight: FontWeight.w700,
-      color: AppColors.textPrimary,
-      fontFeatures: [FontFeature.tabularFigures()],
+      color: colors.textPrimary,
+      fontFeatures: const [FontFeature.tabularFigures()],
       letterSpacing: -0.5,
     );
 
@@ -1428,11 +1526,11 @@ class _SimulationScreenState extends State<SimulationScreen> {
           crossAxisAlignment: CrossAxisAlignment.baseline,
           textBaseline: TextBaseline.alphabetic,
           children: [
-            const Text('Шаг ',
+            Text('Шаг ',
                 style: TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.w700,
-                    color: AppColors.textPrimary)),
+                    color: colors.textPrimary)),
             AnimatedStat(
               value: stepData.step.toDouble(),
               formatter: (v) => v.round().toString(),
@@ -1443,8 +1541,8 @@ class _SimulationScreenState extends State<SimulationScreen> {
         const SizedBox(height: 4),
         Text(
           'из $_steps шагов',
-          style: const TextStyle(
-              fontSize: 12, color: AppColors.textMuted),
+          style: TextStyle(
+              fontSize: 12, color: colors.textMuted),
         ),
 
         const SizedBox(height: 20),
@@ -1478,9 +1576,9 @@ class _SimulationScreenState extends State<SimulationScreen> {
         const SizedBox(height: 20),
         const Divider(),
         const SizedBox(height: 16),
-        _legendItem(AppColors.solidCell, 'Твёрдое'),
+        _legendItem(colors.solidCell, 'Твёрдое'),
         const SizedBox(height: 8),
-        _legendItem(AppColors.semiCell, 'Растворяется'),
+        _legendItem(colors.semiCell, 'Растворяется'),
         const SizedBox(height: 8),
         _legendGradient(),
       ],
@@ -1493,12 +1591,13 @@ class _SimulationScreenState extends State<SimulationScreen> {
     required String Function(double) formatter,
     required TextStyle style,
   }) {
+    final colors = context.appColors;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label,
-            style: const TextStyle(
-                fontSize: 11, color: AppColors.textMuted)),
+            style: TextStyle(
+                fontSize: 11, color: colors.textMuted)),
         const SizedBox(height: 2),
         AnimatedStat(
           value: value,
@@ -1511,6 +1610,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
 
   Widget _legendItem(Color color, String label,
       {bool border = false}) {
+    final colors = context.appColors;
     return Row(
       children: [
         Container(
@@ -1520,25 +1620,26 @@ class _SimulationScreenState extends State<SimulationScreen> {
             color: color,
             borderRadius: BorderRadius.circular(2),
             border: border
-                ? Border.all(color: AppColors.borderLight)
+                ? Border.all(color: colors.borderLight)
                 : null,
           ),
         ),
         const SizedBox(width: 8),
         Text(label,
-            style: const TextStyle(
+            style: TextStyle(
                 fontSize: 12,
-                color: AppColors.textSecondary)),
+                color: colors.textSecondary)),
       ],
     );
   }
 
   Widget _buildZoomControls() {
+    final colors = context.appColors;
     return Container(
       decoration: BoxDecoration(
-        color: AppColors.elevated.withAlpha(230),
+        color: colors.elevated.withAlpha(230),
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: AppColors.borderLight),
+        border: Border.all(color: colors.borderLight),
         boxShadow: const [
           BoxShadow(color: Color(0x10000000), blurRadius: 8, offset: Offset(0, 2)),
         ],
@@ -1547,9 +1648,9 @@ class _SimulationScreenState extends State<SimulationScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           _zoomBtn(Icons.add, () => _applyZoom(1.5)),
-          Container(height: 1, color: AppColors.borderLight),
+          Container(height: 1, color: colors.borderLight),
           _zoomBtn(Icons.remove, () => _applyZoom(1 / 1.5)),
-          Container(height: 1, color: AppColors.borderLight),
+          Container(height: 1, color: colors.borderLight),
           _zoomBtn(Icons.fit_screen_rounded, _resetZoom),
         ],
       ),
@@ -1557,13 +1658,14 @@ class _SimulationScreenState extends State<SimulationScreen> {
   }
 
   Widget _zoomBtn(IconData icon, VoidCallback onTap) {
+    final colors = context.appColors;
     return GestureDetector(
       onTap: onTap,
       child: Container(
         width: 28,
         height: 28,
         alignment: Alignment.center,
-        child: Icon(icon, size: 14, color: AppColors.textSecondary),
+        child: Icon(icon, size: 14, color: colors.textSecondary),
       ),
     );
   }
@@ -1574,6 +1676,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
     FrameData frame,
     Size canvasSize,
   ) {
+    final colors = context.appColors;
     final state = frame.grid[cell.row][cell.col];
     final hasConc = frame.conc.isNotEmpty &&
         cell.row < frame.conc.length &&
@@ -1589,9 +1692,9 @@ class _SimulationScreenState extends State<SimulationScreen> {
       _ => 'Жидкость',
     };
     final stateColor = switch (state) {
-      0 => AppColors.solidCell,
-      1 => AppColors.semiCell,
-      _ => AppColors.electricBlue,
+      0 => colors.solidCell,
+      1 => colors.semiCell,
+      _ => colors.electricBlue,
     };
 
     const tw = 144.0;
@@ -1609,9 +1712,9 @@ class _SimulationScreenState extends State<SimulationScreen> {
           width: tw,
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           decoration: BoxDecoration(
-            color: AppColors.elevated,
+            color: colors.elevated,
             borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: AppColors.borderLight),
+            border: Border.all(color: colors.borderLight),
             boxShadow: const [
               BoxShadow(
                 color: Color(0x18000000),
@@ -1637,10 +1740,10 @@ class _SimulationScreenState extends State<SimulationScreen> {
                   const SizedBox(width: 6),
                   Text(
                     stateLabel,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
-                      color: AppColors.textPrimary,
+                      color: colors.textPrimary,
                     ),
                   ),
                 ],
@@ -1648,17 +1751,17 @@ class _SimulationScreenState extends State<SimulationScreen> {
               const SizedBox(height: 4),
               Text(
                 'Конц  ${conc.toStringAsFixed(4)}',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 11,
-                  color: AppColors.textSecondary,
+                  color: colors.textSecondary,
                   fontFamily: 'monospace',
                 ),
               ),
               Text(
                 'Отн   $pct %',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 11,
-                  color: AppColors.textMuted,
+                  color: colors.textMuted,
                   fontFamily: 'monospace',
                 ),
               ),
@@ -1670,22 +1773,25 @@ class _SimulationScreenState extends State<SimulationScreen> {
   }
 
   Widget _legendGradient() {
+    final colors = context.appColors;
     const stops = [0.0, 0.25, 0.50, 0.75, 1.0];
     const labels = ['0', '25', '50', '75', '100'];
     const barH = 10.0;
     const barW = 160.0;
 
+    final bgColor = _isDark ? const Color(0xFF0D1827) : const Color(0xFFFFFFFF);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // Title
-        const Text(
+        Text(
           'РАСТВОР',
           style: TextStyle(
             fontSize: 10,
             fontWeight: FontWeight.w600,
             letterSpacing: 0.8,
-            color: AppColors.textMuted,
+            color: colors.textMuted,
           ),
         ),
         const SizedBox(height: 6),
@@ -1695,15 +1801,15 @@ class _SimulationScreenState extends State<SimulationScreen> {
           height: barH,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(3),
-            gradient: const LinearGradient(
+            gradient: LinearGradient(
               colors: [
-                Color(0xFFFFFFFF),
-                Color(0xFF52AEFF),
-                Color(0xFF45DEC5),
+                bgColor,
+                AppColors.skyBlue,
+                AppColors.vividTeal,
               ],
-              stops: [0.0, 0.5, 1.0],
+              stops: const [0.0, 0.5, 1.0],
             ),
-            border: Border.all(color: AppColors.borderLight),
+            border: Border.all(color: colors.borderLight),
           ),
         ),
         // Tick marks
@@ -1718,7 +1824,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
                 child: Container(
                   width: 1,
                   height: 4,
-                  color: AppColors.borderLight,
+                  color: colors.borderLight,
                 ),
               );
             }).toList(),
@@ -1739,9 +1845,9 @@ class _SimulationScreenState extends State<SimulationScreen> {
                   child: Text(
                     labels[i],
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 9,
-                      color: AppColors.textMuted,
+                      color: colors.textMuted,
                     ),
                   ),
                 ),
@@ -1750,24 +1856,25 @@ class _SimulationScreenState extends State<SimulationScreen> {
           ),
         ),
         // Unit label
-        const Text(
+        Text(
           '% от макс. концентрации',
-          style: TextStyle(fontSize: 9, color: AppColors.textMuted),
+          style: TextStyle(fontSize: 9, color: colors.textMuted),
         ),
       ],
     );
   }
 
   Widget _buildScrubber(SimulationResult result, int maxFrame) {
+    final colors = context.appColors;
     final currentStep = result.frames[_frameIdx].step;
     final totalSteps = result.series.last.step;
 
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
       decoration: BoxDecoration(
-        color: AppColors.elevated,
+        color: colors.elevated,
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: AppColors.borderLight),
+        border: Border.all(color: colors.borderLight),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1789,7 +1896,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
                   width: 32,
                   height: 32,
                   decoration: BoxDecoration(
-                    color: AppColors.textPrimary,
+                    color: colors.accent,
                     borderRadius: BorderRadius.circular(100),
                   ),
                   child: Icon(
@@ -1814,33 +1921,33 @@ class _SimulationScreenState extends State<SimulationScreen> {
               // Step counter
               Text(
                 'Шаг $currentStep',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
-                  color: AppColors.textPrimary,
+                  color: colors.textPrimary,
                 ),
               ),
               Text(
                 ' / $totalSteps',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 12,
-                  color: AppColors.textMuted,
+                  color: colors.textMuted,
                 ),
               ),
               Text(
                 '  (кадр ${_frameIdx + 1}/${maxFrame + 1})',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 11,
-                  color: AppColors.textMuted,
+                  color: colors.textMuted,
                 ),
               ),
 
               const Spacer(),
 
               // Speed selector
-              const Text('Скорость',
+              Text('Скорость',
                   style: TextStyle(
-                      fontSize: 11, color: AppColors.textMuted)),
+                      fontSize: 11, color: colors.textMuted)),
               const SizedBox(width: 6),
               ...[4.0, 8.0, 16.0, 30.0].map((fps) {
                 final label = fps < 10
@@ -1863,13 +1970,13 @@ class _SimulationScreenState extends State<SimulationScreen> {
                           horizontal: 7, vertical: 3),
                       decoration: BoxDecoration(
                         color: active
-                            ? AppColors.textPrimary
+                            ? colors.accent
                             : Colors.transparent,
                         borderRadius: BorderRadius.circular(100),
                         border: Border.all(
                           color: active
-                              ? AppColors.textPrimary
-                              : AppColors.borderLight,
+                              ? colors.accent
+                              : colors.borderLight,
                         ),
                       ),
                       child: Text(
@@ -1879,7 +1986,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
                           fontWeight: FontWeight.w500,
                           color: active
                               ? Colors.white
-                              : AppColors.textMuted,
+                              : colors.textMuted,
                         ),
                       ),
                     ),
@@ -1914,16 +2021,18 @@ class _SimulationScreenState extends State<SimulationScreen> {
   }
 
   Widget _playerBtn(IconData icon, VoidCallback onTap) {
+    final colors = context.appColors;
     return GestureDetector(
       onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.all(4),
-        child: Icon(icon, size: 18, color: AppColors.textSecondary),
+        child: Icon(icon, size: 18, color: colors.textSecondary),
       ),
     );
   }
 
   Widget _buildLoadingView() {
+    final colors = context.appColors;
     final est = _estimatedSeconds;
     final elapsedSec = _elapsedMs / 1000.0;
     final progress = est != null
@@ -1940,18 +2049,18 @@ class _SimulationScreenState extends State<SimulationScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
+            Text(
               'Идёт симуляция',
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w600,
-                color: AppColors.textPrimary,
+                color: colors.textPrimary,
               ),
             ),
             const SizedBox(height: 4),
             Text(
               '$_gridSize × $_gridSize  ·  ${_geometryLabel(_geometry)}  ·  $_steps шагов',
-              style: const TextStyle(fontSize: 13, color: AppColors.textMuted),
+              style: TextStyle(fontSize: 13, color: colors.textMuted),
             ),
 
             const SizedBox(height: 24),
@@ -1967,16 +2076,16 @@ class _SimulationScreenState extends State<SimulationScreen> {
                       builder: (_, value, __) => LinearProgressIndicator(
                         value: value,
                         minHeight: 6,
-                        backgroundColor: AppColors.borderLight,
-                        valueColor: const AlwaysStoppedAnimation<Color>(
-                            AppColors.textPrimary),
+                        backgroundColor: colors.borderLight,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                            colors.accent),
                       ),
                     )
-                  : const LinearProgressIndicator(
+                  : LinearProgressIndicator(
                       minHeight: 6,
-                      backgroundColor: AppColors.borderLight,
+                      backgroundColor: colors.borderLight,
                       valueColor: AlwaysStoppedAnimation<Color>(
-                          AppColors.textPrimary),
+                          colors.accent),
                     ),
             ),
 
@@ -1986,8 +2095,8 @@ class _SimulationScreenState extends State<SimulationScreen> {
               children: [
                 Text(
                   'Прошло: ${elapsedSec.toStringAsFixed(1)} с',
-                  style: const TextStyle(
-                      fontSize: 12, color: AppColors.textMuted),
+                  style: TextStyle(
+                      fontSize: 12, color: colors.textMuted),
                 ),
                 const Spacer(),
                 if (est != null) ...[
@@ -1995,22 +2104,22 @@ class _SimulationScreenState extends State<SimulationScreen> {
                     progress! >= 0.95
                         ? 'Завершение…'
                         : '~${remaining}с осталось',
-                    style: const TextStyle(
-                        fontSize: 12, color: AppColors.textSecondary),
+                    style: TextStyle(
+                        fontSize: 12, color: colors.textSecondary),
                   ),
                   const SizedBox(width: 8),
                   Text(
                     '${(progress * 100).toStringAsFixed(0)}%',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
-                      color: AppColors.textPrimary,
+                      color: colors.textPrimary,
                     ),
                   ),
                 ] else
-                  const Text(
+                  Text(
                     'Оценка…',
-                    style: TextStyle(fontSize: 12, color: AppColors.textMuted),
+                    style: TextStyle(fontSize: 12, color: colors.textMuted),
                   ),
               ],
             ),
@@ -2021,8 +2130,10 @@ class _SimulationScreenState extends State<SimulationScreen> {
   }
 
   Widget _buildPreviewView() {
+    final colors = context.appColors;
     final previewGrid = _computePreviewGrid();
     final emptyConc = <List<double>>[];
+    final isDark = _isDark;
 
     return Padding(
       padding: const EdgeInsets.all(24),
@@ -2040,7 +2151,9 @@ class _SimulationScreenState extends State<SimulationScreen> {
                       borderRadius: BorderRadius.circular(5),
                       child: CustomPaint(
                         painter: GridPainter(
-                          previewGrid, emptyConc, 1.0),
+                          previewGrid, emptyConc, 1.0,
+                          isDark: isDark,
+                        ),
                         child: const SizedBox.expand(),
                       ),
                     ),
@@ -2051,7 +2164,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(6),
                           border: Border.all(
-                              color: AppColors.borderLight),
+                              color: colors.borderLight),
                         ),
                       ),
                     ),
@@ -2065,17 +2178,17 @@ class _SimulationScreenState extends State<SimulationScreen> {
                         padding: const EdgeInsets.symmetric(
                             horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
-                          color: AppColors.elevated.withAlpha(220),
+                          color: colors.elevated.withAlpha(220),
                           borderRadius: BorderRadius.circular(100),
                           border: Border.all(
-                              color: AppColors.borderLight),
+                              color: colors.borderLight),
                         ),
-                        child: const Text(
+                        child: Text(
                           'Начальное состояние',
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w500,
-                            color: AppColors.textMuted,
+                            color: colors.textMuted,
                           ),
                         ),
                       ),
@@ -2092,19 +2205,19 @@ class _SimulationScreenState extends State<SimulationScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'Готово к запуску',
                   style: TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.w700,
-                    color: AppColors.textPrimary,
+                    color: colors.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   '$_gridSize × $_gridSize ячеек',
-                  style: const TextStyle(
-                      fontSize: 12, color: AppColors.textMuted),
+                  style: TextStyle(
+                      fontSize: 12, color: colors.textMuted),
                 ),
                 const SizedBox(height: 20),
                 _placeholderStat('Твёрдых ячеек'),
@@ -2115,9 +2228,9 @@ class _SimulationScreenState extends State<SimulationScreen> {
                 const SizedBox(height: 24),
                 const Divider(),
                 const SizedBox(height: 16),
-                _legendItem(AppColors.solidCell, 'Твёрдое'),
+                _legendItem(colors.solidCell, 'Твёрдое'),
                 const SizedBox(height: 8),
-                _legendItem(AppColors.semiCell, 'Растворяется'),
+                _legendItem(colors.semiCell, 'Растворяется'),
                 const SizedBox(height: 8),
                 _legendGradient(),
               ],
@@ -2129,18 +2242,19 @@ class _SimulationScreenState extends State<SimulationScreen> {
   }
 
   Widget _placeholderStat(String label) {
+    final colors = context.appColors;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label,
-            style: const TextStyle(
-                fontSize: 11, color: AppColors.textMuted)),
+            style: TextStyle(
+                fontSize: 11, color: colors.textMuted)),
         const SizedBox(height: 2),
-        const Text('—',
+        Text('—',
             style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.w600,
-                color: AppColors.borderLight)),
+                color: colors.borderLight)),
       ],
     );
   }

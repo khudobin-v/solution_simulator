@@ -47,8 +47,9 @@ class _AuthScreenState extends State<AuthScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     return Scaffold(
-      backgroundColor: AppColors.cloudCanvas,
+      backgroundColor: colors.cloudCanvas,
       body: Center(
         child: SizedBox(
           width: 360,
@@ -60,7 +61,7 @@ class _AuthScreenState extends State<AuthScreen> {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: AppColors.textPrimary,
+                  color: colors.accent,
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Icon(Icons.science_outlined,
@@ -79,9 +80,9 @@ class _AuthScreenState extends State<AuthScreen> {
               // Card
               Container(
                 decoration: BoxDecoration(
-                  color: AppColors.elevated,
+                  color: colors.elevated,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppColors.borderLight),
+                  border: Border.all(color: colors.borderLight),
                 ),
                 padding: const EdgeInsets.all(24),
                 child: Form(
@@ -93,18 +94,18 @@ class _AuthScreenState extends State<AuthScreen> {
                       Container(
                         height: 36,
                         decoration: BoxDecoration(
-                          color: AppColors.cloudCanvas,
+                          color: colors.cloudCanvas,
                           borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: AppColors.borderLight),
+                          border: Border.all(color: colors.borderLight),
                         ),
                         child: Row(
                           children: [
                             _tab('Вход', _isLogin, () => setState(() {
                               _isLogin = true; _error = null;
-                            })),
+                            }), colors),
                             _tab('Регистрация', !_isLogin, () => setState(() {
                               _isLogin = false; _error = null;
-                            })),
+                            }), colors),
                           ],
                         ),
                       ),
@@ -134,7 +135,7 @@ class _AuthScreenState extends State<AuthScreen> {
                             icon: Icon(
                               _obscure ? Icons.visibility_off_outlined : Icons.visibility_outlined,
                               size: 18,
-                              color: AppColors.textMuted,
+                              color: colors.textMuted,
                             ),
                             onPressed: () => setState(() => _obscure = !_obscure),
                           ),
@@ -192,7 +193,7 @@ class _AuthScreenState extends State<AuthScreen> {
     );
   }
 
-  Widget _tab(String label, bool active, VoidCallback onTap) {
+  Widget _tab(String label, bool active, VoidCallback onTap, AppColorsExtension colors) {
     return Expanded(
       child: GestureDetector(
         onTap: onTap,
@@ -200,7 +201,7 @@ class _AuthScreenState extends State<AuthScreen> {
           duration: const Duration(milliseconds: 150),
           margin: const EdgeInsets.all(3),
           decoration: BoxDecoration(
-            color: active ? AppColors.elevated : Colors.transparent,
+            color: active ? colors.elevated : Colors.transparent,
             borderRadius: BorderRadius.circular(4),
             boxShadow: active
                 ? [const BoxShadow(color: Color(0x10000000), blurRadius: 4)]
@@ -212,7 +213,7 @@ class _AuthScreenState extends State<AuthScreen> {
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w500,
-              color: active ? AppColors.textPrimary : AppColors.textMuted,
+              color: active ? colors.textPrimary : colors.textMuted,
             ),
           ),
         ),

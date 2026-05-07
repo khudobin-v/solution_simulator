@@ -62,28 +62,29 @@ class _ProfilePanelState extends State<ProfilePanel> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     return Container(
-      color: AppColors.elevated,
+      color: colors.elevated,
       child: Column(
         children: [
           // Header
           Container(
             padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
-            decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: AppColors.borderLight)),
+            decoration: BoxDecoration(
+              border: Border(bottom: BorderSide(color: colors.borderLight)),
             ),
             child: Row(
               children: [
-                const Icon(Icons.person_outline_rounded,
-                    size: 16, color: AppColors.textMuted),
+                Icon(Icons.person_outline_rounded,
+                    size: 16, color: colors.textMuted),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     widget.username,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
-                      color: AppColors.textPrimary,
+                      color: colors.textPrimary,
                     ),
                   ),
                 ),
@@ -91,8 +92,8 @@ class _ProfilePanelState extends State<ProfilePanel> {
                   message: 'Обновить',
                   child: GestureDetector(
                     onTap: _load,
-                    child: const Icon(Icons.refresh_rounded,
-                        size: 15, color: AppColors.textMuted),
+                    child: Icon(Icons.refresh_rounded,
+                        size: 15, color: colors.textMuted),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -100,8 +101,8 @@ class _ProfilePanelState extends State<ProfilePanel> {
                   message: 'Выйти',
                   child: GestureDetector(
                     onTap: widget.onLogout,
-                    child: const Icon(Icons.logout_rounded,
-                        size: 15, color: AppColors.textMuted),
+                    child: Icon(Icons.logout_rounded,
+                        size: 15, color: colors.textMuted),
                   ),
                 ),
               ],
@@ -113,13 +114,13 @@ class _ProfilePanelState extends State<ProfilePanel> {
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
             child: Row(
               children: [
-                const Text(
+                Text(
                   'СОХРАНЁННЫЕ',
                   style: TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.w600,
                     letterSpacing: 0.8,
-                    color: AppColors.textMuted,
+                    color: colors.textMuted,
                   ),
                 ),
                 if (_results != null) ...[
@@ -127,14 +128,14 @@ class _ProfilePanelState extends State<ProfilePanel> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                     decoration: BoxDecoration(
-                      color: AppColors.cloudCanvas,
+                      color: colors.cloudCanvas,
                       borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: AppColors.borderLight),
+                      border: Border.all(color: colors.borderLight),
                     ),
                     child: Text(
                       '${_results!.length}',
-                      style: const TextStyle(
-                          fontSize: 9, color: AppColors.textMuted),
+                      style: TextStyle(
+                          fontSize: 9, color: colors.textMuted),
                     ),
                   ),
                 ],
@@ -145,25 +146,25 @@ class _ProfilePanelState extends State<ProfilePanel> {
           // Content
           Expanded(
             child: _loading
-                ? const Center(
+                ? Center(
                     child: SizedBox(
                       width: 20,
                       height: 20,
                       child: CircularProgressIndicator(
-                          strokeWidth: 1.5, color: AppColors.textMuted),
+                          strokeWidth: 1.5, color: colors.textMuted),
                     ),
                   )
                 : _error != null
                     ? Center(
                         child: Text(_error!,
-                            style: const TextStyle(
-                                fontSize: 11, color: AppColors.textMuted)),
+                            style: TextStyle(
+                                fontSize: 11, color: colors.textMuted)),
                       )
                     : _results!.isEmpty
-                        ? const Center(
+                        ? Center(
                             child: Text('Нет сохранённых симуляций',
                                 style: TextStyle(
-                                    fontSize: 12, color: AppColors.textMuted)),
+                                    fontSize: 12, color: colors.textMuted)),
                           )
                         : ListView.separated(
                             padding: const EdgeInsets.symmetric(
@@ -221,11 +222,12 @@ class _ResultCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     return Container(
       decoration: BoxDecoration(
-        color: AppColors.cloudCanvas,
+        color: colors.cloudCanvas,
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: AppColors.borderLight),
+        border: Border.all(color: colors.borderLight),
       ),
       padding: const EdgeInsets.fromLTRB(10, 10, 8, 10),
       child: Column(
@@ -235,23 +237,23 @@ class _ResultCard extends StatelessWidget {
           Row(
             children: [
               Icon(_geomIcon(result.geometry),
-                  size: 13, color: AppColors.textMuted),
+                  size: 13, color: colors.textMuted),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
                   result.name,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
-                    color: AppColors.textPrimary,
+                    color: colors.textPrimary,
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
               GestureDetector(
                 onTap: onDelete,
-                child: const Icon(Icons.close_rounded,
-                    size: 13, color: AppColors.textMuted),
+                child: Icon(Icons.close_rounded,
+                    size: 13, color: colors.textMuted),
               ),
             ],
           ),
@@ -261,18 +263,18 @@ class _ResultCard extends StatelessWidget {
           Row(
             children: [
               _chip('${result.dissolvedPercent.toStringAsFixed(1)}%',
-                  AppColors.vividTeal),
+                  colors.vividTeal),
               const SizedBox(width: 4),
-              _chip(_geomLabel(result.geometry), AppColors.electricBlue),
+              _chip(_geomLabel(result.geometry), colors.electricBlue),
               const SizedBox(width: 4),
               _chip('${result.gridSize}×${result.gridSize}',
-                  AppColors.textMuted),
+                  colors.textMuted),
             ],
           ),
           const SizedBox(height: 4),
           Text(
             _date(result.createdAt),
-            style: const TextStyle(fontSize: 10, color: AppColors.textMuted),
+            style: TextStyle(fontSize: 10, color: colors.textMuted),
           ),
           const SizedBox(height: 8),
 
@@ -284,16 +286,16 @@ class _ResultCard extends StatelessWidget {
               onPressed: onLoad,
               style: OutlinedButton.styleFrom(
                 padding: EdgeInsets.zero,
-                side: const BorderSide(color: AppColors.borderLight),
+                side: BorderSide(color: colors.borderLight),
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(5)),
               ),
-              child: const Text(
+              child: Text(
                 'Загрузить параметры',
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w500,
-                  color: AppColors.textSecondary,
+                  color: colors.textSecondary,
                 ),
               ),
             ),
