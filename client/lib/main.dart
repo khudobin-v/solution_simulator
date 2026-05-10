@@ -166,7 +166,6 @@ class _SimulationScreenState extends State<SimulationScreen> {
   bool _exportingGif = false;
   bool _exportingPdf = false;
   bool _saving = false;
-  bool _showProfile = false;
   int _profileRefreshKey = 0;
   String? _error;
   SimulationResult? _result;
@@ -532,40 +531,40 @@ class _SimulationScreenState extends State<SimulationScreen> {
     final colors = context.appColors;
     return Scaffold(
       backgroundColor: colors.cloudCanvas,
-      body: Stack(
+      body: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildSidebar(),
-              const VerticalDivider(width: 1),
-              Expanded(child: _buildMain()),
-            ],
-          ),
-          // Profile panel overlay
-          if (_showProfile)
-            Positioned.fill(
-              child: GestureDetector(
-                onTap: () => setState(() => _showProfile = false),
-                child: Container(color: Colors.black.withAlpha(40)),
-              ),
-            ),
-          AnimatedPositioned(
-            duration: const Duration(milliseconds: 220),
-            curve: Curves.easeOut,
-            top: 0,
-            bottom: 0,
-            right: _showProfile ? 0 : -300,
-            width: 300,
-            child: ProfilePanel(
-              token: widget.token,
-              username: widget.username,
-              refreshTrigger: _profileRefreshKey,
-              onLogout: widget.onLogout,
-              onLoad: _loadFromSaved,
-            ),
-          ),
+          _buildSidebar(),
+          const VerticalDivider(width: 1),
+          Expanded(child: _buildMain()),
         ],
+      ),
+    );
+  }
+
+  void _openProfile() {
+    showDialog(
+      context: context,
+      builder: (_) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        clipBehavior: Clip.antiAlias,
+        child: SizedBox(
+          width: 380,
+          height: 520,
+          child: ProfilePanel(
+            token: widget.token,
+            username: widget.username,
+            refreshTrigger: _profileRefreshKey,
+            onLogout: () {
+              Navigator.of(context).pop();
+              widget.onLogout();
+            },
+            onLoad: (r) {
+              Navigator.of(context).pop();
+              _loadFromSaved(r);
+            },
+          ),
+        ),
       ),
     );
   }
@@ -581,7 +580,6 @@ class _SimulationScreenState extends State<SimulationScreen> {
       _seed          = r.seed;
       _poreCount     = r.poreCount;
       _result        = null;
-      _showProfile   = false;
     });
   }
 
@@ -889,21 +887,19 @@ class _SimulationScreenState extends State<SimulationScreen> {
           Tooltip(
             message: widget.username,
             child: GestureDetector(
-              onTap: () => setState(() => _showProfile = !_showProfile),
+              onTap: _openProfile,
               child: Container(
                 width: 28,
                 height: 28,
                 decoration: BoxDecoration(
-                  color: _showProfile
-                      ? colors.accent
-                      : colors.cloudCanvas,
+                  color: colors.cloudCanvas,
                   borderRadius: BorderRadius.circular(100),
                   border: Border.all(color: colors.borderLight),
                 ),
                 child: Icon(
                   Icons.person_outline_rounded,
                   size: 15,
-                  color: _showProfile ? Colors.white : colors.textMuted,
+                  color: colors.textMuted,
                 ),
               ),
             ),
