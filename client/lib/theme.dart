@@ -250,11 +250,30 @@ ThemeData buildTheme({Color accent = const Color(0xFF171717)}) {
       thickness: 1,
       space: 0,
     ),
+    tooltipTheme: TooltipThemeData(
+      decoration: BoxDecoration(
+        color: colors.elevated,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: colors.borderLight),
+        boxShadow: const [BoxShadow(color: Color(0x14000000), blurRadius: 8)],
+      ),
+      textStyle: TextStyle(fontSize: 12, color: colors.textPrimary),
+    ),
   );
 }
 
+// Returns a contrasting foreground color for use on top of [bg].
+Color _contrastFor(Color bg) {
+  final luminance = bg.computeLuminance();
+  return luminance > 0.35 ? const Color(0xFF0A0A0A) : Colors.white;
+}
+
 ThemeData buildDarkTheme({Color accent = const Color(0xFFEDEDED)}) {
-  final colors = AppColorsExtension.dark.copyWith(accent: accent);
+  // In dark mode, ensure accent is visible (not too dark).
+  final effectiveAccent = accent.computeLuminance() < 0.05
+      ? const Color(0xFFEDEDED)
+      : accent;
+  final colors = AppColorsExtension.dark.copyWith(accent: effectiveAccent);
   final base = ThemeData.dark(useMaterial3: true);
   final textTheme = GoogleFonts.interTextTheme(base.textTheme);
 
@@ -262,9 +281,9 @@ ThemeData buildDarkTheme({Color accent = const Color(0xFFEDEDED)}) {
     extensions: [colors],
     colorScheme: ColorScheme.dark(
       surface: colors.cloudCanvas,
-      primary: colors.textPrimary,
+      primary: effectiveAccent,
       secondary: colors.electricBlue,
-      onPrimary: Colors.black,
+      onPrimary: _contrastFor(effectiveAccent),
       onSurface: colors.textPrimary,
       outline: colors.borderLight,
     ),
@@ -318,8 +337,8 @@ ThemeData buildDarkTheme({Color accent = const Color(0xFFEDEDED)}) {
     ),
     elevatedButtonTheme: ElevatedButtonThemeData(
       style: ElevatedButton.styleFrom(
-        backgroundColor: accent,
-        foregroundColor: Colors.black,
+        backgroundColor: effectiveAccent,
+        foregroundColor: _contrastFor(effectiveAccent),
         elevation: 0,
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         shape: const StadiumBorder(),
@@ -331,7 +350,7 @@ ThemeData buildDarkTheme({Color accent = const Color(0xFFEDEDED)}) {
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
         foregroundColor: colors.textPrimary,
-        side: BorderSide(color: colors.textPrimary),
+        side: BorderSide(color: colors.borderLight),
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         shape: const StadiumBorder(),
         textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),

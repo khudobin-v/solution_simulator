@@ -833,11 +833,11 @@ class _SimulationScreenState extends State<SimulationScreen> {
             width: 28,
             height: 28,
             decoration: BoxDecoration(
-              color: colors.accent,
+              color: colors.textPrimary,
               borderRadius: BorderRadius.circular(6),
             ),
-            child: const Icon(Icons.science_outlined,
-                color: Colors.white, size: 16),
+            child: Icon(Icons.science_outlined,
+                color: colors.cloudCanvas, size: 16),
           ),
           const SizedBox(width: 10),
           Text(
@@ -1003,17 +1003,22 @@ class _SimulationScreenState extends State<SimulationScreen> {
   }
 
   Widget _errorBanner(String msg) {
+    final isDark = _isDark;
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: const Color(0xFFFEF2F2),
+        color: isDark ? const Color(0xFF2D1515) : const Color(0xFFFEF2F2),
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: const Color(0xFFFCA5A5)),
+        border: Border.all(
+          color: isDark ? const Color(0xFF6B2020) : const Color(0xFFFCA5A5),
+        ),
       ),
       child: Text(
         msg,
-        style: const TextStyle(
-            fontSize: 12, color: Color(0xFFB91C1C)),
+        style: TextStyle(
+          fontSize: 12,
+          color: isDark ? const Color(0xFFFF8080) : const Color(0xFFB91C1C),
+        ),
       ),
     );
   }
@@ -1800,8 +1805,8 @@ class _SimulationScreenState extends State<SimulationScreen> {
             gradient: LinearGradient(
               colors: [
                 bgColor,
-                AppColors.skyBlue,
-                AppColors.vividTeal,
+                colors.skyBlue,
+                colors.vividTeal,
               ],
               stops: const [0.0, 0.5, 1.0],
             ),
@@ -2250,7 +2255,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
             style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.w600,
-                color: colors.borderLight)),
+                color: colors.textMuted)),
       ],
     );
   }
