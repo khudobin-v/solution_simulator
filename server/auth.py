@@ -1,3 +1,4 @@
+import os
 from datetime import datetime, timedelta, timezone
 
 from typing import Optional
@@ -8,7 +9,7 @@ from passlib.context import CryptContext
 
 from database import get_user_by_id
 
-_SECRET = "dissolution-sim-jwt-secret-2026"
+_SECRET = os.environ.get("JWT_SECRET", "dissolution-sim-jwt-secret-2026")
 _ALGO   = "HS256"
 _DAYS   = 30
 
