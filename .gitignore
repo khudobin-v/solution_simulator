@@ -7,3 +7,5 @@ server/.venv/
 server/app.db
 build/
 client/build/
+*.dmg
+*.zip
