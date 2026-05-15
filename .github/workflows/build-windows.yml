@@ -1,0 +1,44 @@
+name: Build Windows EXE
+
+on:
+  release:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to upload artifact to (e.g. v1.0.0)'
+        required: false
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.0'
+          channel: 'stable'
+
+      - name: Install dependencies
+        working-directory: client
+        run: flutter pub get
+
+      - name: Build Windows release
+        working-directory: client
+        run: flutter build windows --release
+
+      - name: Create ZIP archive
+        shell: pwsh
+        run: |
+          $src = "client\build\windows\x64\runner\Release"
+          Compress-Archive -Path "$src\*" -DestinationPath "dissolution-simulator-windows.zip"
+
+      - name: Upload to GitHub Release
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event.release.tag_name || github.event.inputs.tag || github.ref_name }}"
+          gh release upload "$TAG" dissolution-simulator-windows.zip --clobber
