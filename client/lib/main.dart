@@ -198,10 +198,13 @@ class _SimulationScreenState extends State<SimulationScreen> {
   int _lastRunOps = 0;    // gridSize² × steps
   int _lastRunMs  = 0;    // milliseconds it took
 
-  double? get _estimatedSeconds {
-    if (_lastRunOps == 0 || _lastRunMs == 0) return null;
+  double get _estimatedSeconds {
     final ops = _gridSize * _gridSize * _steps;
-    return ops / _lastRunOps * (_lastRunMs / 1000.0);
+    if (_lastRunOps > 0 && _lastRunMs > 0) {
+      return ops / _lastRunOps * (_lastRunMs / 1000.0);
+    }
+    // First run: baseline ~300k cell-steps per second on a typical machine
+    return ops / 300000.0;
   }
 
   @override
@@ -507,11 +510,6 @@ class _SimulationScreenState extends State<SimulationScreen> {
             _steps = result.dissolutionStep.clamp(1, 2000);
           }
         });
-      }
-    } on TimeoutException {
-      if (mounted) {
-        setState(() => _error =
-            'Симуляция не успела завершиться. Уменьшите размер сетки или количество шагов.');
       }
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
@@ -2041,12 +2039,15 @@ class _SimulationScreenState extends State<SimulationScreen> {
     final colors = context.appColors;
     final est = _estimatedSeconds;
     final elapsedSec = _elapsedMs / 1000.0;
-    final progress = est != null
-        ? (elapsedSec / est).clamp(0.0, 0.95)
-        : null;
-    final remaining = est != null
-        ? (est - elapsedSec).ceil().clamp(0, 9999)
-        : null;
+    final progress = (elapsedSec / est).clamp(0.0, 0.95);
+    final remaining = (est - elapsedSec).ceil().clamp(0, 9999);
+    final isFirstRun = _lastRunOps == 0;
+    final isLong = est > 60;
+
+    String _fmtRemaining(int secs) {
+      if (secs >= 120) return '~${(secs / 60).ceil()} мин';
+      return '~${secs}с';
+    }
 
     return Center(
       child: SizedBox(
@@ -2069,30 +2070,51 @@ class _SimulationScreenState extends State<SimulationScreen> {
               style: TextStyle(fontSize: 13, color: colors.textMuted),
             ),
 
-            const SizedBox(height: 24),
+            // Slow-run warning
+            if (isLong) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFFBEB),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: const Color(0xFFFCD34D)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.timer_outlined,
+                        size: 14, color: Color(0xFFB45309)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        isFirstRun
+                            ? 'Первый запуск может занять дольше обычного'
+                            : 'Симуляция займёт долго — это нормально',
+                        style: const TextStyle(
+                            fontSize: 11, color: Color(0xFF92400E)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
+            const SizedBox(height: 20),
 
             // Smooth progress bar
             ClipRRect(
               borderRadius: BorderRadius.circular(100),
-              child: progress != null
-                  ? TweenAnimationBuilder<double>(
-                      tween: Tween(begin: 0.0, end: progress),
-                      duration: const Duration(milliseconds: 200),
-                      curve: Curves.easeOut,
-                      builder: (_, value, __) => LinearProgressIndicator(
-                        value: value,
-                        minHeight: 6,
-                        backgroundColor: colors.borderLight,
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                            colors.accent),
-                      ),
-                    )
-                  : LinearProgressIndicator(
-                      minHeight: 6,
-                      backgroundColor: colors.borderLight,
-                      valueColor: AlwaysStoppedAnimation<Color>(
-                          colors.accent),
-                    ),
+              child: TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0.0, end: progress),
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeOut,
+                builder: (_, value, __) => LinearProgressIndicator(
+                  value: value,
+                  minHeight: 6,
+                  backgroundColor: colors.borderLight,
+                  valueColor: AlwaysStoppedAnimation<Color>(colors.accent),
+                ),
+              ),
             ),
 
             const SizedBox(height: 10),
@@ -2105,28 +2127,22 @@ class _SimulationScreenState extends State<SimulationScreen> {
                       fontSize: 12, color: colors.textMuted),
                 ),
                 const Spacer(),
-                if (est != null) ...[
-                  Text(
-                    progress! >= 0.95
-                        ? 'Завершение…'
-                        : '~${remaining}с осталось',
-                    style: TextStyle(
-                        fontSize: 12, color: colors.textSecondary),
+                Text(
+                  progress >= 0.95
+                      ? 'Завершение…'
+                      : _fmtRemaining(remaining),
+                  style: TextStyle(
+                      fontSize: 12, color: colors.textSecondary),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '${(progress * 100).toStringAsFixed(0)}%',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: colors.textPrimary,
                   ),
-                  const SizedBox(width: 8),
-                  Text(
-                    '${(progress * 100).toStringAsFixed(0)}%',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: colors.textPrimary,
-                    ),
-                  ),
-                ] else
-                  Text(
-                    'Оценка…',
-                    style: TextStyle(fontSize: 12, color: colors.textMuted),
-                  ),
+                ),
               ],
             ),
           ],
