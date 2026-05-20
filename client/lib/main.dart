@@ -511,6 +511,9 @@ class _SimulationScreenState extends State<SimulationScreen> {
           }
         });
       }
+    } on TimeoutException {
+      if (mounted) setState(() => _error =
+          'Симуляция слишком долго считается. Попробуйте уменьшить размер сетки или количество шагов.');
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {

@@ -33,9 +33,9 @@ class ApiService {
   // ── Simulation ─────────────────────────────────────────────────────────────
 
   Future<SimulationResult> runSimulation(SimulationRequest req) async {
-    // Scale timeout with work volume: at least 60s, ~1s per 200k cell-steps.
+    // Scale timeout: 1s per 80k cell-steps, at least 90s, max 1 hour.
     final cellSteps = req.gridSize * req.gridSize * req.steps;
-    final seconds   = (cellSteps / 200000).ceil().clamp(60, 1800);
+    final seconds   = (cellSteps / 80000).ceil().clamp(90, 3600);
     final resp = await http
         .post(
           Uri.parse('$baseUrl/api/simulations'),
