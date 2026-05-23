@@ -33,16 +33,12 @@ class ApiService {
   // ── Simulation ─────────────────────────────────────────────────────────────
 
   Future<SimulationResult> runSimulation(SimulationRequest req) async {
-    // Scale timeout: 1s per 80k cell-steps, at least 90s, max 1 hour.
-    final cellSteps = req.gridSize * req.gridSize * req.steps;
-    final seconds   = (cellSteps / 80000).ceil().clamp(90, 3600);
     final resp = await http
         .post(
           Uri.parse('$baseUrl/api/simulations'),
           headers: {'Content-Type': 'application/json'},
           body: jsonEncode(req.toJson()),
-        )
-        .timeout(Duration(seconds: seconds));
+        );
 
     if (resp.statusCode == 200) {
       return SimulationResult.fromJson(
