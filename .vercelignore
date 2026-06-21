@@ -1,0 +1,8 @@
+server/.venv/
+server/app.db
+build/
+client/
+icon_source.png
+*.dmg
+*.zip
+*.log
