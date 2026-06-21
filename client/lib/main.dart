@@ -20,7 +20,15 @@ import 'widgets/animated_stat.dart';
 import 'widgets/profile_panel.dart';
 import 'widgets/settings_panel.dart';
 
+class _TrustAllCerts extends HttpOverrides {
+  @override
+  HttpClient createHttpClient(SecurityContext? context) =>
+      super.createHttpClient(context)
+        ..badCertificateCallback = (_, __, ___) => true;
+}
+
 void main() async {
+  if (Platform.isWindows) HttpOverrides.global = _TrustAllCerts();
   WidgetsFlutterBinding.ensureInitialized();
   final prefs = await SharedPreferences.getInstance();
   final token    = prefs.getString('token');
