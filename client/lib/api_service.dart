@@ -22,7 +22,7 @@ class ApiService {
         .post(Uri.parse('$baseUrl$path'),
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode(body))
-        .timeout(const Duration(seconds: 10));
+        .timeout(const Duration(seconds: 30));
     if (resp.statusCode == 200 || resp.statusCode == 201) {
       return AuthResponse.fromJson(jsonDecode(resp.body) as Map<String, dynamic>);
     }
@@ -58,7 +58,7 @@ class ApiService {
               'Authorization': 'Bearer $token',
             },
             body: jsonEncode(req.toJson()))
-        .timeout(const Duration(seconds: 10));
+        .timeout(const Duration(seconds: 30));
     if (resp.statusCode != 201) {
       final detail = (jsonDecode(resp.body) as Map?)?['detail'] ?? resp.statusCode;
       throw Exception('$detail');
@@ -69,7 +69,7 @@ class ApiService {
     final resp = await http
         .get(Uri.parse('$baseUrl/api/results'),
             headers: {'Authorization': 'Bearer $token'})
-        .timeout(const Duration(seconds: 10));
+        .timeout(const Duration(seconds: 30));
     if (resp.statusCode == 200) {
       return (jsonDecode(resp.body) as List)
           .map((e) => SavedResult.fromJson(e as Map<String, dynamic>))
@@ -82,6 +82,6 @@ class ApiService {
     await http
         .delete(Uri.parse('$baseUrl/api/results/$id'),
             headers: {'Authorization': 'Bearer $token'})
-        .timeout(const Duration(seconds: 10));
+        .timeout(const Duration(seconds: 30));
   }
 }
