@@ -5,7 +5,7 @@ import 'models.dart';
 class ApiService {
   final String baseUrl;
 
-  const ApiService({this.baseUrl = 'http://localhost:8000'});
+  const ApiService({this.baseUrl = 'https://program-kappa-five.vercel.app'});
 
   // ── Auth ───────────────────────────────────────────────────────────────────
 
