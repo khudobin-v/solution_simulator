@@ -9,3 +9,4 @@ build/
 client/build/
 *.dmg
 *.zip
+.vercel
