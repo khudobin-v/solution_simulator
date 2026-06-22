@@ -22,7 +22,7 @@
 ### Установка Windows
 
 1. Распаковать ZIP в любую папку
-2. Запустить `dissolution_simulator.exe`
+2. Запустить `client.exe`
 
 ---
 
